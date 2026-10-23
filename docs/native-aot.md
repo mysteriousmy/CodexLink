@@ -34,6 +34,8 @@ MSBuild 在 musl RID 下启用：
 
 Windows x64/ARM64 是完整产品 AOT 产物，编译与运行结果分开记录。UPX 支持 Windows x64，不支持 ARM64 PE；后者保留未压缩 AOT。Windows ZIP 本身仍使用 Deflate 压缩。交叉链接不会消除平台差异，也不能代替真实 Windows 硬件测试。上游注明跨 Windows 链接不保留部分 MSVC CFG/CET 标记，包没有 Authenticode 签名。
 
+Linux/macOS → Windows x64 的交叉链接附带一个限定于该路径的兼容修复：AotAnywhere 1.1.0 的 C `__security_check_cookie` 会覆盖 RAX，而 MSVC 的 /GS 调用约定需要保留返回值。`WindowsX64Cross.targets` 复用原包的 glue，仅将该函数换成保留寄存器的汇编实现；cookie 不匹配仍执行 fast-fail。不会修改 NuGet 缓存，Windows 原生工具链和 ARM64 不受影响。此问题曾导致原生 Windows 启动报错，修复后的实际 UPX 包已通过原生 runner 验证。
+
 ## 体积优化
 
 Release 开启 `TrimMode=full`、`OptimizationPreference=Size`、相同方法折叠、IlcDehydrate，关闭托管堆栈元数据、Debugger、MetadataUpdater、EventSource、无用编码/旧序列化支持，框架异常改用资源键。Debug 保留诊断能力，不将 Debug 大小或速度作为 Release 性能结论。

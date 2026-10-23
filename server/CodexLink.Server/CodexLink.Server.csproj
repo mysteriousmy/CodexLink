@@ -43,4 +43,5 @@
   </ItemGroup>
   <Import Project="FlutterWeb.targets" />
   <Import Project="Sdk.targets" Sdk="StuDev.AotAnywhere" Condition="'$(UseNativeAotToolchain)' != 'true'" />
+  <Import Project="WindowsX64Cross.targets" />
 </Project>

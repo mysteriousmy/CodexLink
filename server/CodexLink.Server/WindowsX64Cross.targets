@@ -1,0 +1,27 @@
+<Project>
+  <!-- Recompile/relink when the replacement helper changes; upstream's native
+       link target does not include its GlueSource in incremental inputs. -->
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT' and '$(RuntimeIdentifier)' == 'win-x64'">
+    <CustomAdditionalCompileInputs Include="$(MSBuildThisFileDirectory)Native/windows-x64-glue.c" />
+  </ItemGroup>
+  <Target Name="PrepareWindowsX64RuntimeGlue"
+          BeforeTargets="AotAnywhereDirectLinkWindows"
+          Condition="'$(_AotAnywhereWindowsCross)' == 'true' and '$(RuntimeIdentifier)' == 'win-x64'">
+    <PropertyGroup>
+      <_WindowsGlueDirectory>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'native', 'windows-glue'))</_WindowsGlueDirectory>
+    </PropertyGroup>
+    <MakeDir Directories="$(_WindowsGlueDirectory)" />
+    <Copy SourceFiles="$(AotAnywhereMsvcGlueSource)"
+          DestinationFiles="$(_WindowsGlueDirectory)/aotanywhere-upstream-glue.c"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)Native/windows-x64-glue.c"
+          DestinationFiles="$(_WindowsGlueDirectory)/windows-x64-glue.c"
+          SkipUnchangedFiles="true" />
+    <PropertyGroup>
+      <AotAnywhereMsvcGlueSource>$(_WindowsGlueDirectory)/windows-x64-glue.c</AotAnywhereMsvcGlueSource>
+    </PropertyGroup>
+    <ItemGroup>
+      <FileWrites Include="$(_WindowsGlueDirectory)/aotanywhere-upstream-glue.c;$(_WindowsGlueDirectory)/windows-x64-glue.c" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -108,7 +108,7 @@
 
 - 手机蜂窝网络、实际 Wi-Fi 切换、长时间后台、电脑休眠/断网。
 - 选定的 HTTPS 入口、代理上传限制、WebSocket 空闲超时。
-- iOS 签名和真机；Windows/macOS 产品运行。
+- iOS 签名和真机；macOS 产品运行，以及 Windows 上的真实 Codex 长任务。
 - 持续负载和真实移动设备的帧时间/内存基线。
 
 后续按用户要求完成本机正式安装：`/opt/codexlink` 的 root 所有单文件程序、`/var/lib/codexlink` 的私有状态，以及系统级 `codexlink.service`（以 jack 运行、开机启动、Restart=always）。结束服务主进程后 systemd 实际自动恢复，旧 Codex daemon 未受影响。47 个迁移数据文件的 SHA-256 一致，旧附件路径通过兼容链接保留；新登录密钥成功、旧密钥在本机及 LAN 均返回 401。没有配置公网入口或修改全局 Codex 配置。
@@ -134,4 +134,7 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 - 四个 APK 经 apksigner 校验签名一致，ABI 分别为 arm64-v8a、armeabi-v7a、x86_64 和三者合集；最低 API 24。
 - 公共源码使用 Gitleaks 扫描，并用本机实际凭据的值对源码、未压缩原生文件、APK 内部成员做只报告命中数量的检查。打包采用文件白名单，模板不含可用令牌。Git 提交使用 GitHub noreply 地址。
 - `docs/screenshots/` 为独立假 Codex 数据：虚构旅行清单项目、会话、用量和 demo@example.invalid。PC 图来自运行中的 Web；手机图来自 Android Release APK 的模拟器运行，不含真实用户会话、账号或凭据。
-- ARM64 的 QEMU 编译使用单线程 ILC 规避模拟器中的编译器线程故障；本地 QEMU 整套网关测试存在启动超时，不能当作目标硬件运行结论。本地 Wine 的 Windows 初始化未通过，因此不将 Wine 视为 Windows 验收。`.github/workflows/release-smoke.yml` 可针对指定 Release，在原生 Linux x64/ARM64、Windows x64/ARM64 runner 校验摘要并运行实际包；后续结果以该工作流为准。
+- ARM64 的 QEMU 编译使用单线程 ILC 规避模拟器中的编译器线程故障；本地 QEMU 整套网关测试存在启动超时，不能当作目标硬件运行结论。本地 Wine 的 .NET 产品初始化未通过，因此不将 Wine 视为 Windows 产品验收。最终验收使用下述原生 runner。
+
+- [四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/39974648441)全部通过：Linux x64/ARM64、Windows x64/ARM64 下载实际发布归档并核对 SHA-256，验证初始化、令牌摘要、鉴权、原生假 Codex 子进程、内嵌 Web/CanvasKit/中文字体、创建会话与提交轮次；两个 Linux 架构另外各通过完整 32 项黑盒契约。这里使用假 Codex，不代表 Windows 上的真实模型与长任务验收。
+- 原生 Windows x64 检查发现 AotAnywhere 1.1.0 的 /GS cookie helper 破坏返回值，未压缩与 UPX 程序均受影响。仅对 x64 交叉链接替换该 helper，保留 cookie 校验与 fast-fail；修复后压缩包通过上面的原生检查。另用小型 C/汇编探针对照原 helper 返回值被破坏、修复后保留、错误 cookie 终止三个行为；这项底层探针在 Wine 执行，未混称为产品原生验收。
