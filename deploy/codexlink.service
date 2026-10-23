@@ -1,0 +1,19 @@
+[Unit]
+Description=CodexLink personal gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/opt/codexlink
+ExecStart=%h/.local/opt/codexlink/CodexLink.Server
+Environment=CODEXLINK_DATA=%h/.local/share/codexlink
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=default.target

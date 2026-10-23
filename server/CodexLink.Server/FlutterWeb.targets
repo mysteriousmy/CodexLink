@@ -1,0 +1,40 @@
+<Project>
+  <PropertyGroup>
+    <FlutterExecutable Condition="'$(FlutterExecutable)' == ''">flutter</FlutterExecutable>
+    <FlutterClientDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../client'))</FlutterClientDirectory>
+    <FlutterWebMode Condition="'$(Configuration)' == 'Debug'">debug</FlutterWebMode>
+    <FlutterWebMode Condition="'$(FlutterWebMode)' == ''">release</FlutterWebMode>
+  </PropertyGroup>
+
+  <!-- Generate before resource metadata is assigned. The output glob must be
+       evaluated in the target, after Flutter has created the files. -->
+  <Target Name="PrepareFlutterWebPaths">
+    <PropertyGroup>
+      <EmbeddedWebDirectory Condition="'$(PrebuiltFlutterWebDirectory)' == ''">$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)flutter-web'))</EmbeddedWebDirectory>
+      <EmbeddedWebDirectory Condition="'$(PrebuiltFlutterWebDirectory)' != ''">$([System.IO.Path]::GetFullPath('$(PrebuiltFlutterWebDirectory)'))</EmbeddedWebDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <FlutterWebInput Include="$(FlutterClientDirectory)/lib/**/*.dart;$(FlutterClientDirectory)/web/**/*;$(FlutterClientDirectory)/assets/**/*;$(FlutterClientDirectory)/pubspec.yaml;$(FlutterClientDirectory)/pubspec.lock;$(MSBuildProjectDirectory)/FlutterWeb.targets" />
+    </ItemGroup>
+    <!-- Include the input inventory in the stamp so deleted files also rebuild. -->
+    <WriteLinesToFile Condition="'$(PrebuiltFlutterWebDirectory)' == ''" File="$(EmbeddedWebDirectory).inputs" Lines="@(FlutterWebInput)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Error Condition="'$(PrebuiltFlutterWebDirectory)' != '' and (!Exists('$(EmbeddedWebDirectory)/index.html') or !Exists('$(EmbeddedWebDirectory)/main.dart.js') or !Exists('$(EmbeddedWebDirectory)/canvaskit/canvaskit.wasm'))" Text="PrebuiltFlutterWebDirectory must contain a complete Flutter web build." />
+  </Target>
+  <Target Name="EmbedFlutterWeb" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildFlutterWeb" Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <FlutterWebResource Include="$(EmbeddedWebDirectory)/**/*" />
+      <!-- The bootstrap selects the universal CanvasKit variant. Other renderers
+           and their debug symbols are unused by this dart2js application. -->
+      <FlutterWebResource Remove="$(EmbeddedWebDirectory)/canvaskit/chromium/**/*;$(EmbeddedWebDirectory)/canvaskit/webparagraph/**/*;$(EmbeddedWebDirectory)/canvaskit/skwasm*;$(EmbeddedWebDirectory)/canvaskit/wimp*" />
+      <FlutterWebResource Remove="$(EmbeddedWebDirectory)/**/*.symbols;$(EmbeddedWebDirectory)/**/*.map;$(EmbeddedWebDirectory)/.last_build_id" />
+      <EmbeddedResource Include="@(FlutterWebResource)">
+        <LogicalName>CodexLink.Web/%(FlutterWebResource.RecursiveDir)%(FlutterWebResource.Filename)%(FlutterWebResource.Extension)</LogicalName>
+      </EmbeddedResource>
+      <FileWrites Condition="'$(PrebuiltFlutterWebDirectory)' == ''" Include="$(EmbeddedWebDirectory)/**/*;$(EmbeddedWebDirectory).inputs;$(EmbeddedWebDirectory).stamp" />
+    </ItemGroup>
+  </Target>
+  <Target Name="BuildFlutterWeb" DependsOnTargets="PrepareFlutterWebPaths" Inputs="@(FlutterWebInput);$(EmbeddedWebDirectory).inputs" Outputs="$(EmbeddedWebDirectory).stamp;$(EmbeddedWebDirectory)/index.html;$(EmbeddedWebDirectory)/main.dart.js">
+    <Exec Condition="'$(PrebuiltFlutterWebDirectory)' == ''" WorkingDirectory="$(FlutterClientDirectory)" Command="&quot;$(FlutterExecutable)&quot; --no-version-check build web --$(FlutterWebMode) --no-web-resources-cdn --output &quot;$(EmbeddedWebDirectory)&quot;" />
+    <Touch Condition="'$(PrebuiltFlutterWebDirectory)' == ''" Files="$(EmbeddedWebDirectory).stamp" AlwaysCreate="true" />
+  </Target>
+</Project>

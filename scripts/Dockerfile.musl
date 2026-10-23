@@ -1,0 +1,10 @@
+# Pinned multi-architecture SDK 10.0.402 / Alpine image.
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:230c3fbae0ceedc70bca04eed2bfb5694e8b248cadbb81010f41b7a993601f55
+RUN apk add --no-cache clang build-base cmake zlib-dev zlib-static openssl-dev openssl-libs-static linux-headers
+ARG BUILD_UID=1000
+ARG BUILD_GID=1000
+# .NET's named mutex implementation needs a passwd entry for the build UID.
+RUN (getent group "$BUILD_GID" || addgroup -g "$BUILD_GID" builder) && \
+    (getent passwd "$BUILD_UID" || adduser -D -u "$BUILD_UID" -G "$(getent group "$BUILD_GID" | cut -d: -f1)" builder)
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+WORKDIR /src

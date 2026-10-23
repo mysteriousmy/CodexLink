@@ -1,0 +1,16 @@
+{
+  "listenUrl": "http://0.0.0.0:47821",
+  "publicOrigin": null,
+  "codexPath": "codex",
+  "preferSharedDaemon": true,
+  "codexSocketPath": null,
+  "codexArguments": [
+    "app-server",
+    "--listen",
+    "stdio://"
+  ],
+  "devices": [],
+  "maxFileBytes": 26214400,
+  "maxStorageBytes": 1073741824,
+  "timeZone": "UTC"
+}

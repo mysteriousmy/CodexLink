@@ -1,0 +1,26 @@
+# Replace YOUR_USER with the account that owns your Codex installation/login.
+[Unit]
+Description=CodexLink personal gateway
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/home/YOUR_USER
+
+[Service]
+Type=exec
+User=YOUR_USER
+Group=YOUR_USER
+WorkingDirectory=/home/YOUR_USER
+ExecStart=/opt/codexlink/CodexLink.Server
+Environment=CODEXLINK_DATA=/var/lib/codexlink
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+StateDirectory=codexlink
+StateDirectoryMode=0700
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillMode=control-group
+UMask=0077
+SyslogIdentifier=codexlink
+
+[Install]
+WantedBy=multi-user.target

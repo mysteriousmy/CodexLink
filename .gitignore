@@ -1,0 +1,54 @@
+# Build products
+**/bin/
+**/obj/
+**/build/
+artifacts/
+coverage/
+TestResults/
+**/__pycache__/
+*.pyc
+
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# Local state and credentials
+.env
+.env.*
+!.env.example
+.local/
+**/appsettings.Local.json
+*.log
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.pem
+*.key
+**/access-token.txt
+**/*-token.txt
+**/config.json
+!**/config.example.json
+**/credentials.json
+**/auth.json
+**/cookies.json
+**/*storage-state*.json
+**/*browser-state*.json
+
+# Editor / OS
+.idea/
+.vs/
+.DS_Store
+Thumbs.db

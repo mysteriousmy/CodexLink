@@ -1,0 +1,63 @@
+name: Release smoke tests
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to verify
+        required: true
+        default: v0.1.0
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            suffix: linux-x64.tar.gz
+          - runner: ubuntu-24.04-arm
+            suffix: linux-arm64.tar.gz
+          - runner: windows-latest
+            suffix: windows-x64.zip
+          - runner: windows-11-arm
+            suffix: windows-arm64.zip
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      ASSET_SUFFIX: ${{ matrix.suffix }}
+    steps:
+      - name: Download source and verified release archive
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$') { throw 'Invalid tag' }
+          git clone --depth 1 --branch $env:RELEASE_TAG "https://github.com/$env:GITHUB_REPOSITORY.git" source
+          if ($LASTEXITCODE -ne 0) { throw 'Source checkout failed' }
+          $asset = "CodexLink-$env:RELEASE_TAG-$env:ASSET_SUFFIX"
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern SHA256SUMS --pattern $asset
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset download failed' }
+          $expected = ((Get-Content SHA256SUMS | Where-Object { $_.EndsWith("  $asset") }) -split ' ')[0]
+          if ((Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Asset checksum mismatch' }
+          New-Item -ItemType Directory package | Out-Null
+          if ($env:ASSET_SUFFIX.EndsWith('.zip')) { Expand-Archive $asset package }
+          else { tar -xzf $asset -C package; if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' } }
+      - name: Exercise the packaged native executable
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = if ($IsWindows) { 'CodexLink.Server.exe' } else { 'CodexLink.Server' }
+          $binary = (Get-ChildItem package -Recurse -File -Filter $name | Select-Object -First 1).FullName
+          if (!$binary) { throw 'Executable missing from package' }
+          python source/scripts/smoke-release.py $binary
+          if ($LASTEXITCODE -ne 0) { throw 'Release smoke test failed' }
+          if (!$IsWindows) {
+            python -m pip install -r source/tests/requirements.txt
+            if ($LASTEXITCODE -ne 0) { throw 'Test dependencies failed' }
+            $env:CODEXLINK_TEST_COMMAND = $binary
+            python -m unittest discover -s source/tests -v
+            if ($LASTEXITCODE -ne 0) { throw 'Gateway contract tests failed' }
+          }

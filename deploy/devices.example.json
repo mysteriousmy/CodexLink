@@ -1,0 +1,9 @@
+{
+  "devices": [
+    {
+      "id": "REPLACE_WITH_A_UNIQUE_DEVICE_ID",
+      "name": "My phone",
+      "tokenHash": "REPLACE_WITH_UPPERCASE_SHA256_OF_YOUR_LOCALLY_GENERATED_TOKEN"
+    }
+  ]
+}
