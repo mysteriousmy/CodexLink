@@ -7,7 +7,9 @@ on:
         required: true
         default: v0.1.0
 permissions:
-  contents: read
+  # GitHub requires write access to see an unpublished draft release.
+  # This manually dispatched workflow only downloads and tests its assets.
+  contents: write
 jobs:
   package:
     strategy:
