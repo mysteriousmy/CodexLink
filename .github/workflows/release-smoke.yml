@@ -33,12 +33,15 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag }}
       ASSET_SUFFIX: ${{ matrix.suffix }}
+      VERIFIER_REF: ${{ github.sha }}
     steps:
       - name: Download source and verified release archive
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$') { throw 'Invalid tag' }
-          git clone --depth 1 --branch $env:RELEASE_TAG "https://github.com/$env:GITHUB_REPOSITORY.git" source
+          git clone --depth 1 "https://github.com/$env:GITHUB_REPOSITORY.git" source
+          git -C source fetch --depth 1 origin $env:VERIFIER_REF
+          git -C source checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source checkout failed' }
           $asset = "CodexLink-$env:RELEASE_TAG-$env:ASSET_SUFFIX"
           gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern SHA256SUMS --pattern $asset
@@ -55,7 +58,24 @@ jobs:
           $binary = (Get-ChildItem package -Recurse -File -Filter $name | Select-Object -First 1).FullName
           if (!$binary) { throw 'Executable missing from package' }
           python source/scripts/smoke-release.py $binary
-          if ($LASTEXITCODE -ne 0) { throw 'Release smoke test failed' }
+          if ($LASTEXITCODE -ne 0) {
+            if ($env:ASSET_SUFFIX -eq 'windows-x64.zip') {
+              Invoke-WebRequest 'https://github.com/upx/upx/releases/download/v5.2.1/upx-5.2.1-win64.zip' -OutFile upx.zip
+              if ((Get-FileHash upx.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'eabc6792a347d45e945be7748423e7868fd01b0d2bcaa2f4b1031fd71ff69bda') { throw 'UPX checksum mismatch' }
+              Expand-Archive upx.zip upx
+              $upx = (Get-ChildItem upx -Recurse -Filter upx.exe | Select-Object -First 1).FullName
+              & $upx -d $binary
+              if ($LASTEXITCODE -ne 0) { throw 'UPX diagnostic decompression failed' }
+              Write-Host 'Diagnostic: testing the decompressed executable'
+              python source/scripts/smoke-release.py $binary
+              if ($LASTEXITCODE -eq 0) {
+                & $upx --best --lzma $binary
+                Write-Host 'Diagnostic: testing UPX 5.2.1 compression'
+                python source/scripts/smoke-release.py $binary
+              }
+            }
+            throw 'Release smoke test failed (diagnostics do not override the package result)'
+          }
           if (!$IsWindows) {
             python -m pip install -r source/tests/requirements.txt
             if ($LASTEXITCODE -ne 0) { throw 'Test dependencies failed' }

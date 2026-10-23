@@ -82,6 +82,13 @@ def main():
                     {'requestId': str(uuid.uuid4()), 'text': 'UTF-8 中文 smoke', 'attachmentIds': []})
                 assert status in (200, 202)
                 print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font, thread creation and turn submission')
+            except Exception:
+                # The isolated fake-Codex run has no account credentials. Redact
+                # its generated gateway token before exposing startup failures.
+                log.flush()
+                diagnostics = (data / 'server.log').read_text(encoding='utf-8', errors='replace')
+                print(diagnostics.replace(token, '[REDACTED]'), file=sys.stderr)
+                raise
             finally:
                 process.terminate()
                 try:
