@@ -1,14 +1,13 @@
 # GitHub Windows runners are elevated. Exercise the actual supported desktop
-# account context in an isolated, disposable standard-user scheduled task.
+# account context in an isolated, disposable standard-user process.
 param([Parameter(Mandatory)][string]$Gateway, [Parameter(Mandatory)][string]$Codex)
 $ErrorActionPreference = 'Stop'
 $user = 'cld' + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $password = 'A1!' + [guid]::NewGuid().ToString('N')
 $root = Join-Path $env:SystemDrive ($user + '-smoke')
-$task = $user + '-daemon-smoke'
 $python = (Get-Command python).Source
 $created = $false
-$registered = $false
+$process = $null
 try {
     New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -AccountNeverExpires | Out-Null
     $created = $true
@@ -36,21 +35,18 @@ try {
 Set-Content '$root\result.txt' `$code
 exit `$code
 "@ | Set-Content "$root\run.ps1"
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File $root\run.ps1"
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-    Register-ScheduledTask -TaskName $task -Action $action -Settings $settings -User "$env:COMPUTERNAME\$user" -Password $password -RunLevel Limited -Force | Out-Null
-    $registered = $true
-    Start-ScheduledTask -TaskName $task
+    Start-Service seclogon
+    $credential = [pscredential]::new("$env:COMPUTERNAME\$user", (ConvertTo-SecureString $password -AsPlainText -Force))
+    $powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $process = Start-Process -FilePath $powershell -Credential $credential -LoadUserProfile -WorkingDirectory $root -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $root\run.ps1" -PassThru
     $end = (Get-Date).AddMinutes(5)
-    while (!(Test-Path "$root\result.txt") -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
+    while (!(Test-Path "$root\result.txt") -and !$process.HasExited -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
     if (Test-Path "$root\output.log") { Get-Content "$root\output.log" }
+    if ($process.HasExited) { Write-Host "Standard-user launcher exit: $($process.ExitCode)" }
     if (!(Test-Path "$root\result.txt")) { throw 'Standard-user daemon smoke timed out' }
     if ([int](Get-Content "$root\result.txt") -ne 0) { throw 'Standard-user daemon smoke failed' }
 } finally {
-    if ($registered) {
-        Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-        Unregister-ScheduledTask -TaskName $task -Confirm:$false
-    }
+    if ($process -and !$process.HasExited) { $process.Kill(); $process.WaitForExit() }
     if ($created) { Remove-LocalUser -Name $user }
     if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue }
 }

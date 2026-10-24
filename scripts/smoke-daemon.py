@@ -4,17 +4,39 @@
 No account credentials, user threads, or model calls are used.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import socket
 import subprocess
 import tempfile
 import time
 import urllib.error
 import urllib.request
+
+
+@contextmanager
+def isolated_home():
+    root = Path(tempfile.mkdtemp(prefix='cld-'))
+    try:
+        yield root
+    finally:
+        # The CLI can acknowledge stop before its background file writers
+        # finish. Bound cleanup retries and report a persistent failure.
+        for attempt in range(60):
+            try:
+                shutil.rmtree(root)
+                break
+            except FileNotFoundError:
+                if not root.exists(): break
+                if attempt == 59: raise
+            except OSError:
+                if attempt == 59: raise
+            time.sleep(.25)
 
 
 def main():
@@ -25,7 +47,7 @@ def main():
     args = parser.parse_args()
     gateway = args.gateway.resolve()
     codex = args.codex.resolve()
-    with tempfile.TemporaryDirectory(prefix='cld-') as temp:
+    with isolated_home() as temp:
         root = Path(temp)
         home, data = root / 'codex', root / 'gateway'
         home.mkdir(); data.mkdir()
