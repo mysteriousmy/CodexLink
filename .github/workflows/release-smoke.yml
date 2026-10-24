@@ -70,8 +70,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $arch = if ($env:ASSET_SUFFIX -match 'arm64') { 'aarch64' } else { 'x86_64' }
-          $target = if ($IsWindows) { "$arch-pc-windows-msvc.exe.zip" } else { "$arch-unknown-linux-musl.tar.gz" }
-          $assetName = "codex-$target"
+          $target = if ($IsWindows) { "$arch-pc-windows-msvc" } else { "$arch-unknown-linux-musl" }
+          # Daemon installation requires the manifest and companion tools.
+          $assetName = "codex-package-$target.tar.gz"
           $release = gh api repos/openai/codex/releases/tags/rust-v0.164.0 | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Official Codex release lookup failed' }
           $asset = $release.assets | Where-Object { $_.name -eq $assetName }
@@ -79,9 +80,9 @@ jobs:
           Invoke-WebRequest $asset.browser_download_url -OutFile $assetName
           if ((Get-FileHash $assetName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $asset.digest.Substring(7)) { throw 'Official Codex checksum mismatch' }
           New-Item -ItemType Directory codex-cli | Out-Null
-          if ($IsWindows) { Expand-Archive $assetName codex-cli }
-          else { tar -xzf $assetName -C codex-cli; if ($LASTEXITCODE -ne 0) { throw 'Codex extraction failed' } }
-          $cliName = if ($IsWindows) { "codex-$arch-pc-windows-msvc.exe" } else { "codex-$arch-unknown-linux-musl" }
+          tar -xzf $assetName -C codex-cli
+          if ($LASTEXITCODE -ne 0) { throw 'Codex extraction failed' }
+          $cliName = if ($IsWindows) { 'codex.exe' } else { 'codex' }
           $codex = (Get-ChildItem codex-cli -Recurse -File -Filter $cliName | Select-Object -First 1).FullName
           $name = if ($IsWindows) { 'CodexLink.Server.exe' } else { 'CodexLink.Server' }
           $binary = (Get-ChildItem package -Recurse -File -Filter $name | Select-Object -First 1).FullName
