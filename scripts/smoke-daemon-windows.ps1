@@ -43,7 +43,16 @@ exit `$code
 `$ErrorActionPreference = 'Stop'
 try {
     `$credential = Import-Clixml '$root\credential.xml'
-    `$process = Start-Process -FilePath '$powershell' -Credential `$credential -LoadUserProfile -WorkingDirectory '$root' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File $root\run.ps1' -PassThru
+    `$start = New-Object System.Diagnostics.ProcessStartInfo
+    `$start.FileName = '$powershell'
+    `$start.Arguments = '-NoProfile -ExecutionPolicy Bypass -File $root\run.ps1'
+    `$start.WorkingDirectory = '$root'
+    `$start.UseShellExecute = `$false
+    `$start.LoadUserProfile = `$true
+    `$start.UserName = `$credential.GetNetworkCredential().UserName
+    `$start.Domain = `$credential.GetNetworkCredential().Domain
+    `$start.Password = `$credential.Password
+    `$process = [System.Diagnostics.Process]::Start(`$start)
     if (!`$process.WaitForExit(240000)) { `$process.Kill(); throw 'Standard-user launcher timed out' }
     if (!(Test-Path '$root\result.txt')) { throw "Launcher exited without a result: `$(`$process.ExitCode)" }
 } catch {

@@ -45,6 +45,12 @@ def main():
     parser.add_argument('codex', type=Path)
     parser.add_argument('--systemd-user', action='store_true', help='Exercise a transient Linux user unit with KillMode=process')
     args = parser.parse_args()
+    if os.name == 'nt':
+        import ctypes
+        in_job = ctypes.c_int()
+        assert ctypes.windll.kernel32.IsProcessInJob(ctypes.c_void_p(-1), None, ctypes.byref(in_job))
+        assert not ctypes.windll.shell32.IsUserAnAdmin(), 'Run the smoke as an ordinary user'
+        print(f'Windows standard-user context; process job membership: {bool(in_job.value)}', flush=True)
     gateway = args.gateway.resolve()
     codex = args.codex.resolve()
     with isolated_home() as temp:
