@@ -154,6 +154,8 @@ app.MapPost("/api/threads/{id}/turns/{turnId}/steer", async (string id, string t
     JsonResult(await sessions.SendAsync((string)context.Items["deviceId"]!, id, turnId, request)));
 app.MapPost("/api/threads/{id}/turns/{turnId}/interrupt", async (string id, string turnId, SessionService sessions) => JsonResult(await sessions.InterruptAsync(id, turnId)));
 app.MapGet("/api/threads/{id}/goal", async (string id, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.GoalAsync(id, ct)));
+app.MapGet("/api/threads/{id}/permissions", async (string id, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.PermissionsAsync(id, ct)));
+app.MapPut("/api/threads/{id}/permissions", async (string id, SetPermissionsRequest request, SessionService sessions) => JsonResult(await sessions.SetPermissionsAsync(id, request)));
 app.MapPut("/api/threads/{id}/goal", async (string id, SetGoalRequest request, SessionService sessions) => JsonResult(await sessions.SetGoalAsync(id, request)));
 app.MapDelete("/api/threads/{id}/goal", async (string id, SessionService sessions) => { await sessions.ClearGoalAsync(id); return TypedResults.NoContent(); });
 app.MapGet("/api/threads/{id}/usage", async (string id, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.UsageAsync(id, ct)));

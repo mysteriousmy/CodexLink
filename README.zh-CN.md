@@ -27,6 +27,7 @@ CodexLink 是面向个人的自托管 Codex 远程客户端。电脑运行一个
 - **接续已有会话**：列出本机不同目录、来源和模型提供商的会话，支持标题搜索、原生项目筛选、自动分页和归档查看；保留原会话 ID 与配置。
 - **远程执行与干预**：实时显示中间说明、最终回复及工具活动，处理审批、中断轮次，或通过原生 steer 引导正在执行的轮次。
 - **文件与图片附件**：App 文件选择、网页拖放和剪贴板真实文件/图片粘贴；支持上传进度、取消、重试与图片预览。上传完成后仍需发送才会提交附件。
+- **会话权限切换**：只读、默认、自动审查、完全访问四档对接 Codex 原生设置，遵守管理策略，跨客户端同步，保留已有自定义权限。
 - **原生 Goal**：输入框切换目标模式，将当前文字提交为 Codex Goal；可查看、编辑、暂停、恢复和删除，保留真实预算与状态。
 - **技能、工作区引用与 MCP**：`/skills`、`@file`、`/mcp`、`/goal` 对接实际目录及协议，不把命令伪装成普通提示词。
 - **代码变更与媒体**：彩色文件 Diff、行号和全屏阅读；查看图片结果、本地文件、动画 SVG，并下载附件。
@@ -123,9 +124,27 @@ Linux 解压目录运行 `sudo ./install-systemd.sh` 可安装系统服务：默
 
 输入框旗帜切换 Goal 模式，切换本身不提交任务，发送时才使用当前文字创建目标。活跃/暂停 Goal 在输入框上方显示简栏；完成目标不挤占消息区域。目标暂停与中断当前轮次是不同操作。
 
+App 和网页输入框的模型旁提供盾牌权限选择器：
+
+| 档位 | 沙箱范围 | 审批方式 |
+| --- | --- | --- |
+| 只读 | 文件系统只读 | 需要升级权限时询问你 |
+| 默认 | 工作区可写 | 需要升级权限时询问你 |
+| 自动审查 | 工作区可写 | Codex 自动审查符合条件的权限升级请求 |
+| 完全访问 | 关闭沙箱 | 不进行常规审批，可访问主机文件和网络 |
+
+新会话使用“默认”；已有会话保留实际设置，自定义配置显示为“自定义权限”。当前轮次结束、Goal 暂停后才可切换，等待 Codex 确认后对后续轮次生效。管理策略禁止的档位不可选，其他客户端修改权限会实时同步。“自动审查”保留沙箱范围。实现使用 Codex 原生[权限配置](https://learn.chatgpt.com/docs/permissions)与[自动审查](https://learn.chatgpt.com/docs/sandboxing/auto-review)，不会修改全局 Codex 配置。
+
 附件先上传后发送。默认每个文件 25 MiB、每条消息最多 10 个文件/100 MiB、附件总存储 1 GiB。网页粘贴必须包含真实文件或图片；单独的路径字符串不能授予浏览器读取本地文件的权限。普通文本按文本粘贴。
 
 会话列表接近底部自动加载更多，会话内容向上阅读时加载更早历史并保留位置。点击文件变更摘要可全屏阅读 Diff。Android 在会话中按系统返回回到列表；键盘打开时系统先收起键盘，草稿与附件仍保留。
+
+<details>
+<summary>查看四档权限选择器</summary>
+
+![四档会话权限，背景为虚构演示内容](docs/screenshots/permissions-desktop.png)
+
+</details>
 
 ## 配置与数据
 
@@ -201,7 +220,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # 关闭 UPX，或指定版本
-python3 scripts/build-release.py --all --no-upx --version 0.1.0
+python3 scripts/build-release.py --all --no-upx --version 0.1.1
 
 # 同一源码已完成 Flutter 检查，重试打包时跳过重复检查
 python3 scripts/build-release.py --all --skip-checks
@@ -239,7 +258,7 @@ flutter --no-version-check test --platform chrome test/web/clipboard_test.dart
 cd ..
 
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.0/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.1/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

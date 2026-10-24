@@ -30,7 +30,8 @@ class ProjectTests(GatewayFixture):
         self.assertEqual(result['thread']['projectId'], project['id'])
         start = self.calls('thread/start')[-1]['params']
         self.assertEqual(start['runtimeWorkspaceRoots'], [str(root)])
-        self.assertEqual(start['sandbox'], 'workspace-write')
+        self.assertEqual(start['permissions'], ':workspace')
+        self.assertNotIn('sandbox', start)
         self.assertEqual(start['approvalPolicy'], 'on-request')
         self.assertEqual(self.request('POST', '/api/threads', {'projectId':project['id'], 'path':str(self.data)})[1]['code'], 'invalid_project_root')
         for invalid in ['relative', '/bad\0path']:

@@ -18,6 +18,7 @@ import 'task_activity.dart';
 import 'home_screen.dart';
 import 'usage_panels.dart';
 import 'diff_view.dart';
+import 'permission_picker.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -965,6 +966,15 @@ class _ComposerState extends State<Composer> {
             ),
             Row(
               children: [
+                Expanded(child: _modelPicker(context)),
+                PermissionPicker(
+                  controller: controller,
+                  onError: widget.appController.reportError,
+                ),
+              ],
+            ),
+            Row(
+              children: [
                 IconButton(
                   tooltip: '添加文件',
                   onPressed: controller.sending
@@ -980,7 +990,7 @@ class _ComposerState extends State<Composer> {
                         },
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 23),
                 ),
-                Expanded(child: _modelPicker(context)),
+                const Spacer(),
                 IconButton(
                   tooltip: '输入指令',
                   onPressed: controller.canControl

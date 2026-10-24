@@ -42,12 +42,12 @@ def main():
                       codexPath=sys.executable, codexArguments=[str(ROOT / 'tests/fake_codex.py')])
         (data / 'config.json').write_text(json.dumps(config), encoding='utf-8')
 
-        def request(path, payload=None, auth=True):
+        def request(path, payload=None, auth=True, method=None):
             headers = {'Content-Type': 'application/json'}
             if auth:
                 headers['Authorization'] = 'Bearer ' + token
             request = urllib.request.Request(base + path,
-                data=None if payload is None else json.dumps(payload).encode(), headers=headers)
+                data=None if payload is None else json.dumps(payload).encode(), headers=headers, method=method)
             with urllib.request.urlopen(request, timeout=10) as response:
                 return response.status, response.headers, response.read()
 
@@ -78,10 +78,13 @@ def main():
                 status, _, body = request('/api/threads', {'projectId': 'codex-project'})
                 assert status == 201
                 thread = json.loads(body)['thread']['id']
+                for mode in ('read-only', 'default', 'auto-review', 'full-access'):
+                    status, _, body = request(f'/api/threads/{thread}/permissions', {'preset':mode}, method='PUT')
+                    assert status == 200 and json.loads(body)['preset'] == mode
                 status, _, _ = request(f'/api/threads/{thread}/turns',
                     {'requestId': str(uuid.uuid4()), 'text': 'UTF-8 中文 smoke', 'attachmentIds': []})
                 assert status in (200, 202)
-                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font, thread creation and turn submission')
+                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font, four permission modes, thread creation and turn submission')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact
                 # its generated gateway token before exposing startup failures.

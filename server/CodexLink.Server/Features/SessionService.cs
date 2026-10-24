@@ -17,6 +17,9 @@ public sealed class SessionService
         public string? ActiveTurn { get; set; }
         public JsonNode? Usage { get; set; }
         public JsonNode? Goal { get; set; }
+        public JsonNode? Permissions { get; set; }
+        public long SettingsEventVersion { get; set; }
+        public TaskCompletionSource<JsonNode?>? SettingsChanged { get; set; }
         public string? ControlReason { get; set; }
         public DateTimeOffset Accessed { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -41,7 +44,7 @@ public sealed class SessionService
     {
         if (method == "runtime/stopped")
         {
-            foreach (var state in _sessions.Values) { state.Loaded = false; state.ActiveTurn = null; state.Usage = null; }
+            foreach (var state in _sessions.Values) { state.Loaded = false; state.ActiveTurn = null; state.Usage = null; state.Permissions = null; }
             return;
         }
         if (parameters.String("threadId") is not { } id || !_sessions.TryGetValue(id, out var session)) return;
@@ -53,6 +56,12 @@ public sealed class SessionService
             case "thread/tokenUsage/updated": session.Usage = parameters?["tokenUsage"].Copy(); break;
             case "thread/goal/updated": session.Goal = parameters?["goal"].Copy(); break;
             case "thread/goal/cleared": session.Goal = null; break;
+            case "thread/settings/updated":
+                session.Permissions = PermissionModes.Read(parameters?["threadSettings"]);
+                session.SettingsEventVersion++;
+                parameters!["permissions"] = session.Permissions.Copy();
+                session.SettingsChanged?.TrySetResult(session.Permissions.Copy());
+                break;
             case "thread/closed": session.Loaded = false; break;
         }
     }
@@ -90,7 +99,7 @@ public sealed class SessionService
         if (!string.IsNullOrWhiteSpace(request.Model)) parameters["model"] = request.Model;
         var response = await _rpc.CallAsync("thread/start", parameters);
         var id = response?["thread"].String("id") ?? throw new ApiException(502, "invalid_codex_response", "Codex 未返回会话 ID。");
-        AddSession(id, new SessionState(project) { Loaded = true, Materialized = false });
+        AddSession(id, new SessionState(project) { Loaded = true, Materialized = false, Permissions = PermissionModes.Read(response) });
         return response;
     }
 
@@ -120,8 +129,7 @@ public sealed class SessionService
     }
 
     private JsonObject SessionParameters(ProjectConfig project) => Json.Object(("cwd", project.Path),
-        ("sandbox", "workspace-write"), ("approvalPolicy", "on-request"), ("approvalsReviewer", "user"),
-        ("config", Json.Object(("sandbox_workspace_write.writable_roots", new JsonArray(_attachments.DirectoryPath)))));
+        ("permissions", ":workspace"), ("approvalPolicy", "on-request"), ("approvalsReviewer", "user"));
 
     private async Task ResumeInsideLockAsync(string id, SessionState session)
     {
@@ -130,9 +138,11 @@ public sealed class SessionService
         // permissions or goal. Another client may already be executing it.
         var parameters = Json.Object(("threadId", id), ("excludeTurns", true));
         var eventVersion = session.TurnEventVersion;
+        var settingsVersion = session.SettingsEventVersion;
         var response = await _rpc.CallAsync("thread/resume", parameters);
         session.Loaded = true;
         session.ControlReason = null;
+        if (session.SettingsEventVersion == settingsVersion) session.Permissions = PermissionModes.Read(response);
         if (session.TurnEventVersion == eventVersion && response?["thread"]?["turns"] is JsonArray { Count: > 0 } turns)
             session.ActiveTurn = turns.FirstOrDefault(t => t.String("status") == "inProgress").String("id");
     }
@@ -172,11 +182,55 @@ public sealed class SessionService
             }
             return Json.Object(("thread", metadata?["thread"].Copy()), ("activeTurnId", session.ActiveTurn),
                 ("usage", session.Usage.Copy()), ("goal", session.Goal.Copy()),
+                ("permissions", session.Permissions.Copy()),
                 ("canControl", session.ControlReason is null), ("controlReason", session.ControlReason), ("archived", archived),
                 ("approvals", new JsonArray(_rpc.Approvals.Where(a => a?["params"].String("threadId") == id).Select(a => a.Copy()).ToArray())),
                 ("attachments", JsonSerializer.SerializeToNode(_attachments.ForThread(id), JsonContext.Default.AttachmentRecordArray)));
         }
         finally { session.Gate.Release(); }
+    }
+
+    public async Task<JsonObject> PermissionsAsync(string id, CancellationToken ct)
+    {
+        await AuthorizeAsync(id, ct);
+        var session = _sessions[id];
+        await session.Gate.WaitAsync(ct);
+        try
+        {
+            if (session.ControlReason is not null) throw new ApiException(409, "thread_read_only", session.ControlReason);
+            await ResumeInsideLockAsync(id, session);
+            return Json.Object(("current", session.Permissions.Copy()),
+                ("options", await PermissionModes.OptionsAsync(_rpc, session.Project.Path, ct)));
+        }
+        finally { session.Gate.Release(); }
+    }
+
+    public async Task<JsonNode?> SetPermissionsAsync(string id, SetPermissionsRequest request)
+    {
+        var parameters = PermissionModes.Parameters(request.Preset);
+        await AuthorizeAsync(id);
+        var session = _sessions[id];
+        await session.Gate.WaitAsync();
+        try
+        {
+            if (session.ControlReason is not null) throw new ApiException(409, "thread_read_only", session.ControlReason);
+            await ResumeInsideLockAsync(id, session);
+            var metadata = await _rpc.CallAsync("thread/read", Json.Object(("threadId", id), ("includeTurns", false)));
+            var goal = await _rpc.CallAsync("thread/goal/get", Json.Object(("threadId", id)));
+            if (session.ActiveTurn is not null || metadata?["thread"]?["status"].String("type") == "active" || goal?["goal"].String("status") == "active")
+                throw new ApiException(409, "thread_busy", "请先结束当前轮次并暂停 Goal，再切换权限。");
+            var options = await PermissionModes.OptionsAsync(_rpc, session.Project.Path);
+            if (!options.Any(o => o.String("id") == request.Preset && o?["allowed"]?.GetValue<bool>() == true))
+                throw new ApiException(403, "permissions_not_allowed", "当前 Codex 环境或管理策略不允许此权限。");
+            parameters["threadId"] = id;
+            session.SettingsChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            await _rpc.CallAsync("thread/settings/update", parameters);
+            // Settings arrive after the empty response, including for empty threads
+            // that have no rollout and therefore cannot be resumed yet.
+            try { return await session.SettingsChanged.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (TimeoutException) { throw new ApiException(504, "permissions_unconfirmed", "权限更新已提交，但尚未收到 Codex 确认；请同步后核对，不要重复提交。"); }
+        }
+        finally { session.SettingsChanged = null; session.Gate.Release(); }
     }
 
     public async Task<JsonNode?> UnarchiveAsync(string id)

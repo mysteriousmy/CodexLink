@@ -51,6 +51,9 @@ class ConversationController extends ChangeNotifier {
   String? model;
   String? effort;
   JsonMap? goal;
+  JsonMap permissions = {};
+  bool permissionsBusy = false;
+  int _permissionEventVersion = 0;
   TokenUsage usage = const TokenUsage(null, null, null, null, null, null, null);
   final List<ConversationItem> items = [];
   final Map<String, ConversationItem> _byId = {};
@@ -90,6 +93,7 @@ class ConversationController extends ChangeNotifier {
   bool get canSend =>
       canControl &&
       !sending &&
+      !permissionsBusy &&
       !loading &&
       !uncertain &&
       !hasUnreadyFiles &&
@@ -99,6 +103,66 @@ class ConversationController extends ChangeNotifier {
                 uploads.isNotEmpty ||
                 references.isNotEmpty);
   String get title => threadTitle(thread);
+  String get permissionLabel => permissions['label'] as String? ?? '权限未知';
+  bool get canChangePermissions =>
+      canControl &&
+      !archived &&
+      !loading &&
+      !sending &&
+      !uncertain &&
+      !permissionsBusy &&
+      activeTurnId == null &&
+      goal?['status'] != 'active';
+
+  Future<List<JsonMap>> loadPermissionOptions() async {
+    final id = threadId;
+    if (id == null || !canChangePermissions) return [];
+    permissionsBusy = true;
+    final permissionVersion = _permissionEventVersion;
+    notifyListeners();
+    try {
+      final result = asMap(
+        await api.request('GET', '/api/threads/$id/permissions'),
+      );
+      if (id != threadId) return [];
+      if (_permissionEventVersion == permissionVersion) {
+        permissions = asMap(result['current']);
+      }
+      return asMaps(result['options']);
+    } finally {
+      if (id == threadId) {
+        permissionsBusy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> setPermissionPreset(String preset, String expectedThread) async {
+    if (expectedThread != threadId || !canChangePermissions) {
+      throw const ApiError('会话状态已变化，请结束当前轮次并暂停 Goal 后再切换权限。');
+    }
+    permissionsBusy = true;
+    final permissionVersion = _permissionEventVersion;
+    notifyListeners();
+    try {
+      final result = asMap(
+        await api.request(
+          'PUT',
+          '/api/threads/$expectedThread/permissions',
+          body: {'preset': preset},
+        ),
+      );
+      if (threadId == expectedThread &&
+          _permissionEventVersion == permissionVersion) {
+        permissions = result;
+      }
+    } finally {
+      if (threadId == expectedThread) {
+        permissionsBusy = false;
+        notifyListeners();
+      }
+    }
+  }
 
   String _draftKey(String id) => 'draft:${api.base.origin}:$id';
   void setGoalMode(bool value) {
@@ -120,7 +184,9 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> select(String id, {bool archived = false}) async {
-    if (sending || uncertain) throw const ApiError('请先核对当前消息的提交结果，再切换会话。');
+    if (sending || uncertain || permissionsBusy) {
+      throw const ApiError('请先等待当前提交完成并核对结果，再切换会话。');
+    }
     _draftTimer?.cancel();
     final preferences = await SharedPreferences.getInstance();
     if (threadId != null) {
@@ -144,6 +210,7 @@ class ConversationController extends ChangeNotifier {
     thread = {};
     activeTurnId = null;
     goal = null;
+    permissions = {};
     usage = const TokenUsage(null, null, null, null, null, null, null);
     approvals = [];
     files = [];
@@ -184,6 +251,7 @@ class ConversationController extends ChangeNotifier {
       activeTurnId = snapshot['activeTurnId'] as String?;
       usage = TokenUsage.fromJson(asMap(snapshot['usage']));
       goal = target['goal'] == null ? null : asMap(target['goal']);
+      permissions = asMap(snapshot['permissions']);
       approvals = asMaps(snapshot['approvals']);
       files = asMaps(snapshot['attachments']);
       _mergeHistory(asMaps(history['data']), prepend: false);
@@ -445,6 +513,10 @@ class ConversationController extends ChangeNotifier {
         notifyListeners();
       case 'thread/goal/updated':
         goal = asMap(parameters['goal']);
+        notifyListeners();
+      case 'thread/settings/updated':
+        _permissionEventVersion++;
+        permissions = asMap(parameters['permissions']);
         notifyListeners();
       case 'thread/goal/cleared':
         goal = null;
@@ -847,6 +919,7 @@ class ConversationController extends ChangeNotifier {
     activeTurnId = null;
     activity = null;
     approvals = [];
+    permissions = {};
     notifyListeners();
   }
 
@@ -863,6 +936,8 @@ class ConversationController extends ChangeNotifier {
     }
     _uploads.clear();
     threadId = null;
+    permissions = {};
+    permissionsBusy = false;
     thread = {};
     activeTurnId = null;
     goal = null;

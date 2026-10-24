@@ -6,6 +6,7 @@ from pathlib import Path
 
 lock = threading.RLock()
 threads, goals, approvals, projects, project_requests = {}, {}, {}, {}, {}
+settings = {}
 usage = {
     "total": {"totalTokens": 1200, "inputTokens": 1000, "outputTokens": 200},
     "last": {"totalTokens": 300},
@@ -102,6 +103,22 @@ def call(method, p):
                 }
             ]
         }
+    if method == 'configRequirements/read':
+        path = Path(os.environ['CODEXLINK_DATA'], 'requirements.json')
+        return {'requirements':json.loads(path.read_text()) if path.exists() else {}}
+    if method == 'permissionProfile/list':
+        requirements = call('configRequirements/read', {})['requirements']
+        allowed = requirements.get('allowedPermissionProfiles')
+        return {'data':[{'id':x, 'description':x, 'allowed':allowed is None or allowed.get(x, False)} for x in [':read-only', ':workspace', ':danger-full-access']], 'nextCursor':None}
+    if method == 'thread/settings/update':
+        current = dict(settings[tid])
+        profile = p['permissions']
+        current.update(approvalPolicy=p['approvalPolicy'], approvalsReviewer=p['approvalsReviewer'], activePermissionProfile={'id':profile, 'extends':None})
+        current['sandboxPolicy'] = {':read-only':{'type':'readOnly', 'networkAccess':False}, ':workspace':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, ':danger-full-access':{'type':'dangerFullAccess'}}[profile]
+        settings[tid] = current
+        # Real app-server sends confirmation after the empty RPC response.
+        later(lambda: event('thread/settings/updated', threadId=tid, threadSettings=current))
+        return {}
     if method == "thread/start":
         tid = str(uuid.uuid4())
         threads[tid] = {
@@ -111,7 +128,8 @@ def call(method, p):
             "preview": "Fixture task",
             "turns": [],
         }
-        return {"thread": threads[tid]}
+        settings[tid] = {'approvalPolicy':p['approvalPolicy'], 'approvalsReviewer':p['approvalsReviewer'], 'sandboxPolicy':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, 'activePermissionProfile':{'id':p['permissions'], 'extends':None}}
+        return {"thread": threads[tid], **settings[tid]}
     if method == "thread/list":
         data = [t for t in threads.values() if bool(t.get("archived")) == bool(p.get("archived"))]
         if p.get("cwd"): data = [t for t in data if t["cwd"] == p["cwd"]]
@@ -134,11 +152,12 @@ def call(method, p):
             return {"thread": {"id": tid, "cwd": "relative/path"}}
         if tid == "outside" and tid not in threads:
             threads[tid] = {"id":tid, "cwd":str(Path(os.environ["CODEXLINK_DATA"]).parent), "preview":"External workspace", "turns":[]}
+            settings[tid] = {'approvalPolicy':{'granular':{'sandbox_approval':True}}, 'approvalsReviewer':'user', 'sandboxPolicy':{'type':'workspaceWrite', 'writableRoots':['/custom'], 'networkAccess':True}, 'activePermissionProfile':{'id':'custom-profile', 'extends':':workspace'}}
         if tid == "preexisting" and tid not in threads:
             threads[tid] = {"id":tid, "cwd":str(Path(os.environ["CODEXLINK_DATA"]).parent), "preview":"Already running", "turns":[{"id":"existing-turn", "status":"inProgress", "items":[]}]}
         if method == "thread/resume":
             assert set(p) == {"threadId", "excludeTurns"}, "resume must preserve configuration"
-        return {"thread": threads[tid]}
+        return {"thread": threads[tid], **settings.get(tid, {})}
     if method == "thread/turns/list":
         return {"data": threads[tid]["turns"], "nextCursor": None}
     if method == "thread/items/list":

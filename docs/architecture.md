@@ -176,3 +176,9 @@ AOT 网关的启动、空闲内存和事件路径单独测量；Codex 子进程�
 ## 已实现的协议适配
 
 本机 Codex 0.163.0 的轮次列表 RPC 在运行时返回不支持。实现使用 `thread/read` 元数据、`thread/items/list` 分页与原生 turn 事件确定活跃轮次；网关重启后 `thread/resume` 恢复历史和官方用量。已通过真实附件读取、steer 和 Goal 验证，详见 [验收记录](verification.md)。
+
+## 会话权限
+
+App/Web 读取 `GET /api/threads/{id}/permissions` 的当前值及四档可用性，通过 `PUT` 提交一个 `preset`。服务端只接受 `read-only/default/auto-review/full-access`，分别映射到原生命名配置与审批策略；不提供任意权限 RPC 透传。新会话使用 `:workspace`、`on-request`、`user`，不覆盖恢复会话的设置。
+
+选择时核对 `permissionProfile/list` 与 `configRequirements/read`，运行中的轮次/Goal 拒绝修改。`thread/settings/update` 的空响应不能作为最终状态，等待 `thread/settings/updated` 确认后回传，同一事件同步其他客户端。新建空会话尚无 rollout，因此不能为了读取权限而强制 `thread/resume`。现有自定义设置保留并明确标识。

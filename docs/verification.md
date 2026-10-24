@@ -138,3 +138,11 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 
 - [四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/39974648441)全部通过：Linux x64/ARM64、Windows x64/ARM64 下载实际发布归档并核对 SHA-256，验证初始化、令牌摘要、鉴权、原生假 Codex 子进程、内嵌 Web/CanvasKit/中文字体、创建会话与提交轮次；两个 Linux 架构另外各通过完整 32 项黑盒契约。这里使用假 Codex，不代表 Windows 上的真实模型与长任务验收。
 - 原生 Windows x64 检查发现 AotAnywhere 1.1.0 的 /GS cookie helper 破坏返回值，未压缩与 UPX 程序均受影响。仅对 x64 交叉链接替换该 helper，保留 cookie 校验与 fast-fail；修复后压缩包通过上面的原生检查。另用小型 C/汇编探针对照原 helper 返回值被破坏、修复后保留、错误 cookie 终止三个行为；这项底层探针在 Wine 执行，未混称为产品原生验收。
+
+## v0.1.1 会话权限
+
+- App/Web 新增只读、默认、自动审查、完全访问选择器。切换等待 Codex 的设置事件确认，管理策略禁用的选项不可提交；既有会话/自定义配置原样恢复，执行中的轮次或活跃 Goal 禁止切换。
+- 权限契约覆盖：`test_four_permission_presets_confirm_actual_settings_and_persist_for_turns`、`test_custom_existing_permissions_are_displayed_and_never_overwritten_on_resume`、`test_permission_changes_reject_active_turn_and_active_goal`、`test_permissions_respect_managed_profiles_reviewers_and_authentication`、`test_external_permission_change_updates_snapshot_and_live_clients`。
+- Flutter 覆盖选择器提交及管理策略禁用、真实确认前不更新状态、执行中禁用、320/390/1100px 与 1.3 倍字号，以及 `new_permission_events_win_over_older_http_responses` 防止旧 HTTP 结果覆盖新事件。静态分析无问题，40 项 Flutter 测试与 2 项 Chrome 粘贴测试通过。
+- 本机真实共享 Codex 在独立临时目录中验证四档更新，检查原生 sandbox、approvalPolicy、approvalsReviewer、activePermissionProfile；没有提交模型轮次或修改用户原有会话。musl x64 的 UPX 程序同样完成这条真实协议验证。
+- `scripts/smoke-release.py` 为四个平台的实际发布包增加四档权限检查。完整网关契约增至 37 项；最终平台结果记录在对应 [Release](https://github.com/mysteriousmy/CodexLink/releases/tag/v0.1.1) 中。
