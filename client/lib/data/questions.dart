@@ -1,4 +1,66 @@
+import 'dart:convert';
+
 import 'api_client.dart';
+
+// This envelope is consumed by Codex TUI's async_question_reply parser. IDs
+// include the original question index, even when earlier questions are answered.
+String asyncQuestionId(String messageId, String index) =>
+    jsonEncode(['request_user_input_async', messageId, int.parse(index)]);
+
+class QuestionReply {
+  const QuestionReply(this.id, this.question, this.answer);
+  final String id, question, answer;
+  static const _open = '<send_user_message_question_reply>';
+  static const _close = '</send_user_message_question_reply>';
+
+  static String encode(Iterable<QuestionReply> replies) =>
+      '$_open${jsonEncode([
+        for (final reply in replies) {'questionItemId': reply.id, 'question': reply.question, 'answer': reply.answer},
+      ])}$_close';
+
+  static List<QuestionReply> parse(String text) {
+    var value = text.trim();
+    if (value.startsWith('# Context from my IDE setup:\n')) {
+      value = value.split('\n## My request for Codex:\n').last.trim();
+    }
+    if (!value.startsWith(_open) || !value.endsWith(_close)) return [];
+    try {
+      final decoded = jsonDecode(
+        value.substring(_open.length, value.length - _close.length),
+      );
+      final entries = decoded is List ? decoded : [decoded];
+      final replies = <QuestionReply>[];
+      for (final entry in entries) {
+        if (entry is! Map ||
+            entry['questionItemId'] is! String ||
+            entry['question'] is! String ||
+            entry['answer'] is! String) {
+          return [];
+        }
+        replies.add(
+          QuestionReply(
+            entry['questionItemId'],
+            entry['question'],
+            entry['answer'],
+          ),
+        );
+      }
+      return replies;
+    } on FormatException {
+      return [];
+    }
+  }
+
+  static List<QuestionReply> fromContent(dynamic content) {
+    final input = asMaps(content)
+        .where((p) => p['type'] != 'skill' && p['type'] != 'mention')
+        .toList();
+    if (input.length != 1 || input.single['type'] != 'text') return [];
+    return parse(input.single['text'] as String? ?? '');
+  }
+
+  String get displayText => '> $question\n\n$answer';
+}
 
 class CodexQuestion {
   const CodexQuestion({
@@ -48,10 +110,11 @@ class CodexQuestion {
 class QuestionDraft {
   QuestionDraft({
     required this.threadId,
-    required this.questions,
+    required List<CodexQuestion> questions,
+    required this.sourceId,
     this.approvalId,
-  });
-  final String threadId;
+  }) : questions = List.of(questions);
+  final String threadId, sourceId;
   final String? approvalId;
   final List<CodexQuestion> questions;
   final Map<String, int> selections = {};
@@ -75,6 +138,25 @@ class QuestionDraft {
         },
     },
   };
-  String get message =>
-      '回复 Codex 的问题：\n\n${questions.indexed.map((e) => '${e.$1 + 1}. ${e.$2.title}\n回答：${answer(e.$2)}').join('\n\n')}';
+  String get message => QuestionReply.encode([
+    for (final q in questions)
+      QuestionReply(asyncQuestionId(sourceId, q.id), q.title, answer(q)),
+  ]);
+
+  void resolve(Set<String> ids) {
+    if (approvalId != null || ids.isEmpty) return;
+    questions.removeWhere((q) {
+      if (!ids.contains(sourceId) &&
+          !ids.contains(asyncQuestionId(sourceId, q.id))) {
+        return false;
+      }
+      text.remove(q.id);
+      selections.remove(q.id);
+      return true;
+    });
+    if (questions.isEmpty) {
+      sent = true;
+      requestId = null;
+    }
+  }
 }

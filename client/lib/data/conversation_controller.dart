@@ -61,6 +61,7 @@ class ConversationController extends ChangeNotifier {
   final Map<String, String> _turnDiffs = {};
   List<JsonMap> approvals = [];
   final Map<String, QuestionDraft> _questionDrafts = {};
+  final Set<String> _answeredQuestionIds = {};
   List<JsonMap> files = [];
   String draft = '';
   bool goalMode = false;
@@ -88,6 +89,9 @@ class ConversationController extends ChangeNotifier {
   Timer? _flushTimer;
   Timer? _draftTimer;
   int _generation = 0;
+  // History refreshes must not invalidate an in-flight submission. Only a
+  // session reset (logout/login) makes its response belong to an old session.
+  int _sessionGeneration = 0;
   bool _disposed = false;
   final ValueNotifier<int> streamRevision = ValueNotifier(0);
   List<AttachmentUpload> get uploads => _uploads[threadId] ?? const [];
@@ -195,6 +199,7 @@ class ConversationController extends ChangeNotifier {
       await preferences.setString(_draftKey(threadId!), draft);
     }
     threadId = id;
+    _answeredQuestionIds.clear();
     goalMode = false;
     this.archived = archived;
     canControl = !archived;
@@ -321,6 +326,7 @@ class ConversationController extends ChangeNotifier {
     final added = <ConversationItem>[];
     for (final entry in entries.reversed) {
       final item = asMap(entry['item']);
+      _readQuestionReplies(item);
       final id = item['id'] as String?;
       if (id == null) continue;
       final existing = _byId[id];
@@ -437,6 +443,7 @@ class ConversationController extends ChangeNotifier {
       case 'item/started':
       case 'item/completed':
         final data = asMap(parameters['item']);
+        _readQuestionReplies(data);
         final id = data['id'] as String?;
         if (id == null) break;
         if (method == 'item/started') {
@@ -621,7 +628,7 @@ class ConversationController extends ChangeNotifier {
     if (!canSend || threadId == null) return false;
     if (goalMode) return _sendGoal();
     final id = threadId!;
-    final generation = _generation;
+    final session = _sessionGeneration;
     final requestId = newRequestId();
     final body = <String, dynamic>{
       'requestId': requestId,
@@ -642,11 +649,13 @@ class ConversationController extends ChangeNotifier {
     notifyListeners();
     try {
       await api.request('POST', path, body: body);
-      if (_disposed || generation != _generation || threadId != id) return true;
+      if (_disposed || session != _sessionGeneration || threadId != id) {
+        return true;
+      }
       await _accepted(id);
       return true;
     } catch (error) {
-      if (_disposed || generation != _generation || threadId != id) {
+      if (_disposed || session != _sessionGeneration || threadId != id) {
         return false;
       }
       // Transport failures and RPC timeouts leave acceptance unknown. Never auto-resend.
@@ -664,7 +673,7 @@ class ConversationController extends ChangeNotifier {
       onError(error);
       return false;
     } finally {
-      if (!_disposed && generation == _generation) {
+      if (!_disposed && session == _sessionGeneration) {
         sending = false;
         notifyListeners();
       }
@@ -911,26 +920,74 @@ class ConversationController extends ChangeNotifier {
   }
 
   QuestionDraft questionDraft(
-    String key,
+    String sourceId,
     List<CodexQuestion> questions, {
     String? approvalId,
   }) {
-    key = '$threadId:$key';
+    final key =
+        '$threadId:${approvalId == null ? 'message' : 'approval'}:$sourceId';
     if (!_questionDrafts.containsKey(key) && _questionDrafts.length >= 128) {
       _questionDrafts.remove(_questionDrafts.keys.first);
     }
-    return _questionDrafts.putIfAbsent(
+    final response = _questionDrafts.putIfAbsent(
       key,
       () => QuestionDraft(
         threadId: threadId!,
+        sourceId: sourceId,
         questions: questions,
         approvalId: approvalId,
       ),
     );
+    response.resolve(_answeredQuestionIds);
+    return response;
+  }
+
+  List<QuestionDraft> get pendingQuestions =>
+      [
+            for (final approval in approvals)
+              if (approval['method'] == 'item/tool/requestUserInput')
+                questionDraft(
+                  approval['id'] as String,
+                  CodexQuestion.parse(asMap(approval['params'])['questions']),
+                  approvalId: approval['id'] as String,
+                ),
+            for (final item in items)
+              if (item.type == 'agentMessage' &&
+                  asMaps(item.data['questions']).isNotEmpty)
+                questionDraft(
+                  item.id,
+                  CodexQuestion.parse(
+                    item.data['questions'],
+                    asynchronous: true,
+                  ),
+                ),
+          ]
+          .where((response) => !response.sent && response.questions.isNotEmpty)
+          .toList();
+
+  void _readQuestionReplies(JsonMap item) {
+    if (item['type'] != 'userMessage') return;
+    _resolveQuestionIds(
+      QuestionReply.fromContent(item['content']).map((reply) => reply.id),
+    );
+  }
+
+  void _resolveQuestionIds(Iterable<String> ids) {
+    final resolved = ids.toSet();
+    if (resolved.isEmpty) return;
+    _answeredQuestionIds.addAll(resolved);
+    // Bound replay bookkeeping to the current thread and recent question IDs.
+    while (_answeredQuestionIds.length > 8192) {
+      _answeredQuestionIds.remove(_answeredQuestionIds.first);
+    }
+    for (final response in _questionDrafts.values) {
+      if (response.threadId == threadId) response.resolve(resolved);
+    }
   }
 
   bool questionAvailable(QuestionDraft response) =>
       !_disposed &&
+      !response.sent &&
       response.threadId == threadId &&
       canControl &&
       !archived &&
@@ -944,6 +1001,12 @@ class ConversationController extends ChangeNotifier {
       throw const ApiError('请先等待同步或其他提交完成，再回答问题。');
     }
     if (!response.valid) throw const ApiError('请回答每个问题。');
+    final session = _sessionGeneration;
+    final answeredIds = response.approvalId == null
+        ? response.questions
+              .map((q) => asyncQuestionId(response.sourceId, q.id))
+              .toList()
+        : <String>[];
     response.busy = true;
     sending = true;
     notifyListeners();
@@ -985,13 +1048,20 @@ class ConversationController extends ChangeNotifier {
         }
       }
       response.sent = true;
+      if (!_disposed &&
+          session == _sessionGeneration &&
+          threadId == response.threadId) {
+        _resolveQuestionIds(answeredIds);
+      }
       response.requestId = null;
       response.text.clear();
       response.selections.clear();
     } finally {
       response.busy = false;
-      sending = false;
-      if (!_disposed) notifyListeners();
+      if (!_disposed && session == _sessionGeneration) {
+        sending = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1020,7 +1090,9 @@ class ConversationController extends ChangeNotifier {
 
   void reset() {
     _generation++;
+    _sessionGeneration++;
     _questionDrafts.clear();
+    _answeredQuestionIds.clear();
     _draftTimer?.cancel();
     _clearItems();
     for (final list in _uploads.values) {

@@ -124,9 +124,14 @@ def main():
                 request(f'/api/threads/{thread}/turns', {'requestId':str(uuid.uuid4()), 'text':'async questions'})
                 snapshot = json.loads(request(f'/api/threads/{thread}')[2])
                 history = json.loads(request(f'/api/threads/{thread}/items')[2])['data']
-                assert any(v['item'].get('questions') and v['item'].get('delivery') == 'async' for v in history)
+                question = next(v['item'] for v in history if v['item'].get('questions') and v['item'].get('delivery') == 'async')
+                answer = {'questionItemId':json.dumps(['request_user_input_async', question['id'], 0], separators=(',', ':')),
+                    'question':question['questions'][0]['title'], 'answer':'简洁（推荐）'}
+                reply_text = '<send_user_message_question_reply>' + json.dumps([answer], ensure_ascii=False) + '</send_user_message_question_reply>'
                 assert request(f"/api/threads/{thread}/turns/{snapshot['activeTurnId']}/steer",
-                    {'requestId':str(uuid.uuid4()), 'text':'回复 Codex 的问题：简洁界面'})[0] == 200
+                    {'requestId':str(uuid.uuid4()), 'text':reply_text})[0] == 200
+                history = json.loads(request(f'/api/threads/{thread}/items')[2])['data']
+                assert any(v['item'].get('content') == [{'type':'text', 'text':reply_text}] for v in history)
                 print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission, notification JSON/SSE, native question replies and asynchronous question history/steer')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact

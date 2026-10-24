@@ -317,6 +317,10 @@ def call(method, p):
     if method == "turn/steer":
         if threads[tid]["turns"][0]["id"] != p["expectedTurnId"]:
             raise ValueError("turn changed")
+        item = {"id": str(uuid.uuid4()), "type": "userMessage", "content": p["input"]}
+        threads[tid]["turns"][0]["items"].append(item)
+        event("item/started", threadId=tid, turnId=p["expectedTurnId"], item=item)
+        event("item/completed", threadId=tid, turnId=p["expectedTurnId"], item=item)
         later(lambda: finish(tid))
         return {"turnId": p["expectedTurnId"]}
     if method == "turn/interrupt":

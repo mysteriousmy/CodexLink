@@ -289,13 +289,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
               ],
             ),
           ),
-          if (controller.approvals.isNotEmpty)
+          if (controller.approvals.any(
+            (a) => a['method'] != 'item/tool/requestUserInput',
+          ))
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 260),
               child: ListView(
                 shrinkWrap: true,
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                 children: controller.approvals
+                    .where((a) => a['method'] != 'item/tool/requestUserInput')
                     .map(
                       (a) => ApprovalCard(
                         key: ValueKey(a['id']),
@@ -374,6 +377,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
                       child: _goalCard(context),
                     ),
+                  QuestionBar(controller: controller),
                   Composer(appController: widget.appController),
                 ],
               ),
@@ -440,19 +444,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  Widget _message(ConversationItem item) => Center(
+  Widget _message(ConversationItem item) => ListenableBuilder(
     key: ValueKey(item.id),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 900),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-        child: MessageTile(
-          item: item,
-          controller: controller,
-          onError: widget.appController.reportError,
-        ),
-      ),
-    ),
+    listenable: item,
+    builder: (context, _) =>
+        item.type == 'agentMessage' &&
+            item.text.trim().isEmpty &&
+            asMaps(item.data['questions']).isNotEmpty
+        ? const SizedBox.shrink()
+        : Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 10,
+                ),
+                child: MessageTile(
+                  item: item,
+                  controller: controller,
+                  onError: widget.appController.reportError,
+                ),
+              ),
+            ),
+          ),
   );
 
   Future<void> _goalAction(Future<void> Function() action) async {
@@ -1146,6 +1161,7 @@ class MessageTile extends StatelessWidget {
     builder: (context, _) {
       final colors = Theme.of(context).colorScheme;
       if (item.type == 'userMessage') {
+        final replies = QuestionReply.fromContent(item.data['content']);
         final texts = <String>[];
         final files = <JsonMap>[];
         final references = <JsonMap>[];
@@ -1155,7 +1171,13 @@ class MessageTile extends StatelessWidget {
             continue;
           }
           if (part['type'] != 'text') continue;
-          final text = part['text'] as String? ?? '';
+          final text = replies.isEmpty
+              ? part['text'] as String? ?? ''
+              : replies.map((reply) => reply.displayText).join('\n\n');
+          if (replies.isNotEmpty) {
+            texts.add(text);
+            continue;
+          }
           if (text.contains('<codexlink_files>')) {
             try {
               references.addAll(
@@ -1281,6 +1303,10 @@ class MessageTile extends StatelessWidget {
         );
       }
       if (item.type == 'agentMessage') {
+        if (item.text.trim().isEmpty &&
+            asMaps(item.data['questions']).isNotEmpty) {
+          return const SizedBox.shrink();
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1361,15 +1387,6 @@ class MessageTile extends StatelessWidget {
                     );
                   }
                 },
-              ),
-            if (asMaps(item.data['questions']).isNotEmpty)
-              QuestionPrompt(
-                controller: controller,
-                sourceId: 'message:${item.id}',
-                questions: CodexQuestion.parse(
-                  item.data['questions'],
-                  asynchronous: true,
-                ),
               ),
           ],
         );
@@ -1708,13 +1725,7 @@ class _ApprovalCardState extends State<ApprovalCard> {
     final parameters = asMap(widget.approval['params']);
     final userInput = method == 'item/tool/requestUserInput';
     if (userInput) {
-      return QuestionPrompt(
-        controller: widget.controller,
-        sourceId: 'approval:${widget.approval['id']}',
-        approvalId: widget.approval['id'] as String,
-        questions: CodexQuestion.parse(parameters['questions']),
-        blocking: parameters['isBlocking'] != false,
-      );
+      return QuestionBar(controller: widget.controller);
     }
     final permissions = method == 'item/permissions/requestApproval';
     final colors = Theme.of(context).colorScheme;

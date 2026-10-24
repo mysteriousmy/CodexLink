@@ -46,9 +46,9 @@ Reminders correspond to completed or failed **turns** received by this gateway, 
 
 ## Answer questions
 
-Upgrade the gateway and Android app to v0.1.4 or later. Tap **回答问题** on a pending prompt or an asynchronous question in the conversation. Select an option or choose **其他回答** when offered, then answer every question and submit. Options are never submitted automatically. Secret fields obscure their contents; question drafts stay in memory and survive dialog dismissal and reconnects, but are cleared when the client restarts or logs out. Native prompts disappear when Codex or another client resolves them.
+Upgrade the gateway and Android app to v0.1.5 or later. Pending questions appear in a single flat strip above the composer. Tap **回答问题** to answer the next group. Select an option or choose **其他回答** when offered, then answer every question and submit. Options are never submitted automatically. Secret fields obscure their contents; question drafts stay in memory and survive dialog dismissal and reconnects, but are cleared when the client restarts or logs out. Prompts disappear after submission or when another client answers them; structured asynchronous replies are restored from conversation history after reconnecting.
 
-Asynchronous replies are sent as a normal message or a `turn/steer` supplement to the current turn, without consuming your existing composer content. If submission is uncertain, **核对提交结果** queries its status instead of resending. If a question was sent by an older Codex version without structured question metadata, its ordinary message remains readable and can be answered in the composer.
+Asynchronous replies use Codex’s question-reply envelope, including the original message and question IDs, through a new turn or `turn/steer`. Compatible Codex TUI clients can dismiss the corresponding queued questions. Your existing composer content is preserved. If submission is uncertain, **核对提交结果** queries its status instead of resending. If a question was sent by an older Codex version without structured question metadata, its ordinary message remains readable and can be answered in the composer.
 
 ## How it works
 

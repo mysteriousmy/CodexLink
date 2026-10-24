@@ -230,3 +230,24 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 
 - [v0.1.4 四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40087525450)全部通过：实际安装包在 Linux x64/ARM64、Windows x64/ARM64 上验证原生问题回答与异步问题历史/steer，同时保留原有权限、通知及内嵌网页检查。两个 Linux 架构另各通过完整 49 项契约。
 - 最终四个 APK 的 ABI、签名及递增版本号验证通过，签名与旧版一致。最终 x86_64 APK 覆盖安装后再次验证登录保留和完整三题原生回传。GitHub 上 9 个资产的 SHA-256 与本地一致；源码、原生文件和包内共 1804 份内容的私密值检查为 0 命中，源码及 Git 历史扫描无密钥泄漏。
+
+## v0.1.5 输入恢复与问题同步（2026-10-24）
+
+- 发送请求的生命周期与会话历史刷新解耦。旧实现中，发送/steer 未返回时重连同步会改变历史代次，HTTP 成功、明确失败和未知结果都可能跳过 `sending` 清理，使所有会话输入框持续只读。修复前这三项复现测试失败，修复后可继续输入和切换；未知结果仍需查询，不能自动重发。
+- 原生/异步问题聚合为输入框上方的一行扁平提示条，显示待答数量，滚动聊天不移动提示条。320px 宽度下高度不超过 52px；回答后消失，正文只保留实际消息文本。
+- 使用官方 Codex `rust-v0.163.0`（`83086188ae0614bd882818ff1aa23f3194962012`）的 [TUI 回答解析器](https://github.com/openai/codex/blob/83086188ae0614bd882818ff1aa23f3194962012/codex-rs/tui/src/async_question_reply.rs)格式。实际 Dart 生成的两题答案已交给未修改的上游 Rust 解析器验证，原始问题 ID、非连续索引、中文、引号、换行、结束标签文本及可读显示均正确。这是解析器互通验证，未声称实际操作了用户的 TUI。
+- 回答状态从实时用户消息与加载的历史恢复，支持逐题/整消息旧 ID、答案先于问题到达，以及其他客户端在回答弹窗打开时提交。已回答部分不重新编号，不清除其他问题的草稿；嵌入示例、非法 JSON、额外文本或附件不会误清待答项。
+
+| Requirement | Evidence |
+| --- | --- |
+| 发送过程中同步后恢复输入和会话切换，未知结果不重发 | `steer_accepted_during_sync_restores_composer_and_navigation`、`steer_rejected_during_sync_restores_composer_and_navigation`、`steer_uncertain_during_sync_restores_composer_and_navigation` |
+| 旧登录请求不能影响新登录的在途输入 | `old_send_200_cannot_unlock_new_login_submission`、`old_send_504_cannot_unlock_new_login_submission`、`old_question_completion_cannot_unlock_a_new_login_submission` |
+| TUI 信封、原始索引、特殊字符与完整消息识别 | `question_envelope_preserves_original_ids_unicode_and_escaping` |
+| 跨端部分回答保留未答项及草稿，旧整消息 ID 兼容 | `remote_partial_answers_keep_other_questions_drafts_and_original_indices` |
+| 乱序、历史重载、客户端重启不重开已答项 | `answers_before_questions_and_history_reconnect_do_not_reopen_prompts` |
+| 打开的弹窗响应远端回答，保留其他草稿 | `remote_async_answer_updates_open_dialog_without_losing_other_draft` |
+| 小屏扁平提示固定在输入框上方，合并原生与异步问题 | `question_strip_stays_above_composer_outside_history_on_small_screens` |
+| 自定义回答提交后提示消失 | `async_question_bar_allows_custom_answer_and_disappears_after_submission` |
+| 历史答案可读，嵌入示例不被解析替换 | `reply_history_shows_readable_answers_and_leaves_embedded_examples_unchanged` |
+| 回答保留聊天输入、引用与 Goal，仍使用对应轮次 | `async_question_starts_idle_turn_preserving_composer`、`async_question_steers_active_turn_preserving_composer` |
+| 原生多问题、选项说明、私密输入与内存边界 | `question_options_show_descriptions_validate_all_answers_and_hide_secrets` |

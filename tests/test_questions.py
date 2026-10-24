@@ -1,11 +1,36 @@
 import concurrent.futures
 import json
+import uuid
 from test_gateway import GatewayFixture
 import test_shared_gateway as shared
 from websockets.sync.client import unix_connect
 
 
 class QuestionTests(GatewayFixture):
+    def test_structured_async_replies_preserve_ids_and_echo_into_history(self):
+        for active in [False, True]:
+            with self.subTest(active=active):
+                tid = self.create()
+                self.assertEqual(self.send(tid, 'async questions')[0], 200)
+                history = lambda: self.request('GET', f'/api/threads/{tid}/items')[1]['data']
+                question = self.until(lambda: [v['item'] for v in history() if v['item'].get('questions')])[0]
+                turn = self.request('GET', f'/api/threads/{tid}')[1]['activeTurnId']
+                if not active:
+                    self.assertEqual(self.request('POST', f'/api/threads/{tid}/turns/{turn}/interrupt')[0], 200)
+                answer = {'questionItemId': json.dumps(['request_user_input_async', question['id'], 1], separators=(',', ':')),
+                          'question': '还有什么要求？', 'answer': '保留草稿\n"手机和网页" 😀'}
+                text = '<send_user_message_question_reply>' + json.dumps([answer], ensure_ascii=False) + '</send_user_message_question_reply>'
+                path = f'/api/threads/{tid}/turns' + (f'/{turn}/steer' if active else '')
+                self.assertEqual(self.request('POST', path, {'requestId':str(uuid.uuid4()), 'text':text})[0], 200)
+                method = 'turn/steer' if active else 'turn/start'
+                params = self.calls(method)[-1]['params']
+                self.assertEqual(params['input'], [{'type':'text', 'text':text}])
+                if active:
+                    self.assertEqual(params['expectedTurnId'], turn)
+                echoed = self.until(lambda: [v['item'] for v in history() if v['item'].get('content') == params['input']])
+                self.assertEqual(len(echoed), 1)
+                self.until(lambda: self.request('GET', f'/api/threads/{tid}')[1]['activeTurnId'] is None)
+
     def pending(self, tid):
         return self.request('GET', f'/api/threads/{tid}')[1]['approvals']
 

@@ -77,12 +77,12 @@ void main() {
     },
   };
   QuestionDraft draft({bool native = false}) => c.questionDraft('q', [
-    const CodexQuestion(
-      id: 'q',
+    CodexQuestion(
+      id: native ? 'q' : '0',
       title: '你希望怎么做？',
       options: [(label: '分步完成', description: '')],
     ),
-  ], approvalId: native ? 'pending' : null)..selections['q'] = 0;
+  ], approvalId: native ? 'pending' : null)..selections[native ? 'q' : '0'] = 0;
   Future<void> show(WidgetTester t, Widget child) =>
       t.pumpWidget(MaterialApp(home: Scaffold(body: child)));
 
@@ -322,7 +322,11 @@ void main() {
               : '/api/threads/t/turns',
         ]);
         final body = asMap(jsonDecode(calls.single.body));
-        expect(body['text'], '回复 Codex 的问题：\n\n1. 你希望怎么做？\n回答：分步完成');
+        expect(
+          QuestionReply.parse(body['text']).single.id,
+          '["request_user_input_async","q",0]',
+        );
+        expect(QuestionReply.parse(body['text']).single.answer, '分步完成');
         expect(body.keys.toSet(), {'requestId', 'text'});
         expect(body['requestId'], isNotEmpty);
         expect(c.draft, '原来的草稿');
@@ -442,7 +446,7 @@ void main() {
   );
 
   testWidgets(
-    'async_message_renders_questions_with_empty_text_and_allows_custom_answer',
+    'async_question_bar_allows_custom_answer_and_disappears_after_submission',
     (t) async {
       final posts = <JsonMap>[];
       setup((r) async {
@@ -460,11 +464,8 @@ void main() {
           },
         ],
       });
-      addTearDown(item.dispose);
-      await show(
-        t,
-        MessageTile(item: item, controller: c, onError: (e) => fail('$e')),
-      );
+      c.items.add(item);
+      await show(t, QuestionBar(controller: c));
       expect(find.text('需要哪种风格？'), findsOneWidget);
       await t.tap(find.text('回答问题'));
       await t.pumpAndSettle();
@@ -475,8 +476,12 @@ void main() {
       await t.pump();
       await t.tap(find.text('提交回答'));
       await t.pumpAndSettle();
-      expect(posts.single['text'], '回复 Codex 的问题：\n\n1. 需要哪种风格？\n回答：自定义风格');
-      expect(find.text('回答已发送'), findsOneWidget);
+      expect(
+        QuestionReply.parse(posts.single['text']).single.id,
+        '["request_user_input_async","async",0]',
+      );
+      expect(QuestionReply.parse(posts.single['text']).single.answer, '自定义风格');
+      expect(find.byKey(const ValueKey('question-bar')), findsNothing);
     },
   );
 

@@ -200,6 +200,6 @@ Web 同源 EventSource 独立于聊天连接，页面隐藏时保留。获得系
 
 `item/tool/requestUserInput` 保留原生请求 ID、问题 ID、选项说明、`isOther`、`isSecret` 与 `isBlocking`。回答经现有鉴权 `/api/approvals/{id}` 提交；服务端验证全部问题、单个非空答案、20,000 字符上限及封闭选项，再以原生 JSON-RPC result 返回。验证失败保留请求；写入串行，重复提交返回已失效。已开始写入但传输失败时不恢复请求，避免重复回答。`serverRequest/resolved` 与对应轮次完成清理入口，其他轮次完成不误清请求。非阻塞问题不停止任务动效，也不按超时自动选答案。
 
-Codex CLI 0.163.0 生成的 schema 另有 `agentMessage.questions: AsyncUserInputQuestion[]`（title/options），没有对应的专用回答 RPC。本客户端据此将答案和问题标题组成普通用户消息：活动轮次通过捕获的 `expectedTurnId` 调用 `turn/steer`，空闲时 `turn/start`；复用既有 operation ID 与查询接口。轮次冲突不自动转新轮次，超时/断线只核对状态，不自动重发。异步问题不宣称具有原生审批的失效状态；本客户端本次发送成功后显示“回答已发送”，客户端重启后可再次补充。
+Codex CLI 0.163.0 的 `agentMessage.questions` 使用 `title/options`。v0.1.5 按同版本 TUI 的 `async_question_reply.rs` 发送完整 `<send_user_message_question_reply>` JSON 信封，记录 `questionItemId/question/answer`；ID 为紧凑 JSON 数组 `["request_user_input_async", 原始消息 ID, 原始问题索引]`。活动轮次通过捕获的 `expectedTurnId` 调用 `turn/steer`，空闲时 `turn/start`；复用既有 operation ID 与查询接口，轮次冲突不自动转新轮次，超时/断线只核对状态，不自动重发。TUI 据此移除对应待答项。CodexLink 同样从实时用户消息和分页历史解析完整信封，只忽略 skill/mention 输入，要求恰好一段文本；嵌入示例、残缺信封和带附件的消息保持普通文本。逐题解析、旧整消息 ID 兼容和提前到达的答案用于防止回放重现，索引不随部分回答重排。待答草稿最多 128 组、当前会话回答 ID 最多 8192 个，切换/退出清理 ID，历史按需恢复；答案正文不进入持久草稿。问题统一出现在输入框上方的扁平提示条，聊天历史只保留正文和可读的答案。
 
 共享 Flutter 问答表单按协议显示单选、说明、自由回答、多问题与私密字段，不默认替用户选中/提交。最多 128 组问答草稿保存在 controller 内存中；切换会话或关闭弹窗可继续填写，客户端重启/退出清除，不写 SharedPreferences。网络失败保留内容；问题在另一客户端解决后，已打开的表单禁止提交。提交过程不读取或清理聊天草稿、附件、引用、模型、权限与 Goal。

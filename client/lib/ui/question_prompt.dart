@@ -3,76 +3,65 @@ import 'package:flutter/material.dart';
 import '../data/conversation_controller.dart';
 import '../data/questions.dart';
 
-class QuestionPrompt extends StatelessWidget {
-  const QuestionPrompt({
-    super.key,
-    required this.controller,
-    required this.sourceId,
-    required this.questions,
-    this.approvalId,
-    this.blocking = false,
-  });
+class QuestionBar extends StatelessWidget {
+  const QuestionBar({super.key, required this.controller});
   final ConversationController controller;
-  final String sourceId;
-  final List<CodexQuestion> questions;
-  final String? approvalId;
-  final bool blocking;
 
   @override
-  Widget build(BuildContext context) {
-    if (questions.isEmpty) return const SizedBox.shrink();
-    final response = controller.questionDraft(
-      sourceId,
-      questions,
-      approvalId: approvalId,
-    );
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                blocking ? 'Codex 等待你的回答' : 'Codex 有问题想请你补充',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              for (final q in questions)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(q.title),
-                ),
-              FilledButton.tonalIcon(
-                icon: Icon(
-                  response.sent ? Icons.check : Icons.question_answer_outlined,
-                  size: 18,
-                ),
-                label: Text(
-                  response.sent
-                      ? '回答已发送'
-                      : response.requestId != null
-                      ? '核对提交结果'
-                      : '回答问题',
-                ),
-                onPressed:
-                    response.sent || !controller.questionAvailable(response)
-                    ? null
-                    : () => showDialog<void>(
-                        context: context,
-                        builder: (_) => QuestionDialog(
-                          controller: controller,
-                          response: response,
-                        ),
-                      ),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) {
+      final pending = controller.pendingQuestions;
+      if (pending.isEmpty) return const SizedBox.shrink();
+      final response = pending.first;
+      final count = pending.fold<int>(
+        0,
+        (sum, draft) => sum + draft.questions.length,
+      );
+      final colors = Theme.of(context).colorScheme;
+      return Container(
+        key: const ValueKey('question-bar'),
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.only(left: 10, right: 4),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(top: BorderSide(color: colors.outlineVariant)),
         ),
-      ),
-    );
-  }
+        child: Row(
+          children: [
+            Icon(
+              Icons.question_answer_outlined,
+              size: 17,
+              color: colors.primary,
+            ),
+            const SizedBox(width: 8),
+            Text('$count 个问题', style: const TextStyle(fontSize: 12)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                response.questions.first.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            TextButton(
+              onPressed: !controller.questionAvailable(response)
+                  ? null
+                  : () => showDialog<void>(
+                      context: context,
+                      builder: (_) => QuestionDialog(
+                        controller: controller,
+                        response: response,
+                      ),
+                    ),
+              child: Text(response.requestId != null ? '核对提交结果' : '回答问题'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 class QuestionDialog extends StatefulWidget {
