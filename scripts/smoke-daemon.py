@@ -46,8 +46,12 @@ def main():
         def request(path, method='GET'):
             req = urllib.request.Request(base + path, data=b'{}' if method == 'POST' else None,
                 headers={'Authorization':'Bearer ' + token, 'Content-Type':'application/json'}, method=method)
-            with urllib.request.urlopen(req, timeout=60) as response:
-                return json.load(response)
+            try:
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode(errors='replace').replace(token, '[redacted]')
+                raise RuntimeError(f'{method} {path} returned {error.code}: {detail}') from error
 
         def await_gateway(process):
             end = time.monotonic() + 20
