@@ -22,19 +22,21 @@ try {
     Copy-Item "$PSScriptRoot\smoke-daemon.py" "$root\smoke.py"
     # All interpolated paths are generated locally, not user input.
     @"
-`$ErrorActionPreference = 'Stop'
-`$env:TEMP = '$root\tmp'
-`$env:TMP = '$root\tmp'
-try {
-    & '$python' '$root\smoke.py' '$root\CodexLink.Server.exe' '$root\package\bin\codex.exe' *> '$root\output.log'
-    `$code = `$LASTEXITCODE
-} catch {
-    `$_ | Out-File '$root\output.log' -Append
-    `$code = 1
-}
-Set-Content '$root\result.txt' `$code
-exit `$code
-"@ | Set-Content "$root\run.ps1"
+import os, runpy, sys, traceback
+from pathlib import Path
+os.environ['TEMP'] = os.environ['TMP'] = r'$root\tmp'
+sys.argv = [r'$root\smoke.py', r'$root\CodexLink.Server.exe', r'$root\package\bin\codex.exe']
+with open(r'$root\output.log', 'w', encoding='utf-8') as log:
+    sys.stdout = sys.stderr = log
+    try:
+        runpy.run_path(sys.argv[0], run_name='__main__')
+        code = 0
+    except BaseException:
+        traceback.print_exc()
+        code = 1
+Path(r'$root\result.txt').write_text(str(code))
+sys.exit(code)
+"@ | Set-Content "$root\run.py"
     $powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     Start-Service seclogon
     $credential = [pscredential]::new("$env:COMPUTERNAME\$user", (ConvertTo-SecureString $password -AsPlainText -Force))
@@ -44,8 +46,8 @@ exit `$code
 try {
     `$credential = Import-Clixml '$root\credential.xml'
     `$start = New-Object System.Diagnostics.ProcessStartInfo
-    `$start.FileName = '$powershell'
-    `$start.Arguments = '-NoProfile -ExecutionPolicy Bypass -File $root\run.ps1'
+    `$start.FileName = '$python'
+    `$start.Arguments = '$root\run.py'
     `$start.WorkingDirectory = '$root'
     `$start.UseShellExecute = `$false
     `$start.LoadUserProfile = `$true
