@@ -154,3 +154,6 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 - App/Web 会话列表顶部支持下拉刷新，包括空列表和短列表；复用现有列表读取协议，保留搜索、项目/归档筛选、当前会话与草稿。
 - 组件测试通过：`pull_refresh_empty_list`、`pull_refresh_short_list`、`pull_refresh_preserves_filters_and_ignores_stale_page`、`pull_refresh_failure_keeps_list_and_allows_retry`。通过实际下拉手势验证加载动画、一次请求、结果替换、旧分页不覆盖新结果，以及失败提示和重试。
 - Flutter 静态分析无问题，44 项单元/组件测试与 2 项 Chrome 剪贴板测试通过；原有会话自动分页、历史加载和手机布局回归仍通过。
+- 手机尺寸的实际 Web 页面通过触摸下拉刷新，分别从已有列表、单条列表和空列表读取新结果；每次手势均只有一次列表请求。
+- Android 模拟器先登录 v0.1.1，再覆盖安装 v0.1.2 x86_64 Release APK，登录状态保留。实际下拉同样完成已有列表、短列表和空列表三种更新，均验证服务器请求次数及界面新内容。全部使用独立虚构会话，不访问用户真实账号或模型。
+- [v0.1.2 四平台原生验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40059821509)全部通过；两个 Linux 架构各通过 37 项完整网关契约。本机最终 UPX x64 发布包也通过相同 37 项测试。四个 APK 的 ABI/签名与递增版本号验证通过，GitHub 上 9 个资产的 SHA-256 与本地一致；源码及包内共 1779 份内容的私密值检查为 0 命中。

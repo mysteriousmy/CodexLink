@@ -74,7 +74,7 @@ Linux 实际 RID 为 `linux-musl-x64` / `linux-musl-arm64`，OpenSSL 静态链�
 
 当前工具链最低支持 Android 7.0 / API 24。Intel 版本为 **x86_64**，Flutter release 不支持传统 32 位 x86 ABI。官方 APK 使用项目发布证书签名，后续版本可覆盖升级；自行编译会生成自己的私有签名密钥。
 
-v0.1.1 的四个服务端包已通过[原生平台运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40047630023)，包括四档权限；两个 Linux 架构另各通过 37 项网关契约测试。检查使用假 Codex，完整范围及真机限制见[验证记录](docs/verification.md)。
+v0.1.2 的四个服务端包已通过[原生平台运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40059821509)，包括四档权限；两个 Linux 架构另各通过 37 项网关契约测试。检查使用假 Codex，完整范围及真机限制见[验证记录](docs/verification.md)。
 
 同时下载 `SHA256SUMS` 校验文件。Linux/macOS 可在包含下载文件的目录运行 `sha256sum -c SHA256SUMS`（未下载的文件会提示缺失），或单独比较目标文件摘要；Windows 用 `Get-FileHash .\文件名 -Algorithm SHA256` 对照对应条目。
 

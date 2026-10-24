@@ -74,7 +74,7 @@ Linux packages use **musl with fully static native linking** (`linux-musl-x64` /
 
 Minimum Android version is determined by the pinned Flutter toolchain (currently Android 7.0 / API 24). The Intel build is **x86_64**, not legacy 32-bit x86; Flutter release mode does not support that legacy ABI. APKs are signed with the project's release certificate so subsequent official versions can update the same installation. Self-built APKs use your own private signing key.
 
-All four v0.1.1 server packages passed [native-platform smoke tests](https://github.com/mysteriousmy/CodexLink/actions/runs/40047630023), including all four permission modes; both Linux architectures also passed the 37-test gateway contract suite. Tests use a fake Codex process. See the [verification record](docs/verification.md) for the scope and real-device limitations.
+All four v0.1.2 server packages passed [native-platform smoke tests](https://github.com/mysteriousmy/CodexLink/actions/runs/40059821509), including all four permission modes; both Linux architectures also passed the 37-test gateway contract suite. Tests use a fake Codex process. See the [verification record](docs/verification.md) for the scope and real-device limitations.
 
 Download `SHA256SUMS` alongside the assets. On Linux/macOS run `sha256sum -c SHA256SUMS` in a directory containing the downloaded files, or compare the specific file's hash. On Windows use `Get-FileHash .\<asset> -Algorithm SHA256` and compare it with the matching entry.
 
