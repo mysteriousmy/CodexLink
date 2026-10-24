@@ -251,3 +251,11 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 | 历史答案可读，嵌入示例不被解析替换 | `reply_history_shows_readable_answers_and_leaves_embedded_examples_unchanged` |
 | 回答保留聊天输入、引用与 Goal，仍使用对应轮次 | `async_question_starts_idle_turn_preserving_composer`、`async_question_steers_active_turn_preserving_composer` |
 | 原生多问题、选项说明、私密输入与内存边界 | `question_options_show_descriptions_validate_all_answers_and_hide_secrets` |
+
+最终验证：`flutter analyze` 无问题，`flutter test` **86 项**通过；Chrome 执行三个相关测试文件 **25 项**及 `test/web` **3 项**通过。最终 UPX Linux x64 安装包通过 **50 项**完整网关契约（74.681 秒）及扩展的原生冒烟检查；`test_structured_async_replies_preserve_ids_and_echo_into_history` 另验证新轮次/steer 的信封保持原文并进入可恢复历史。
+
+Android 16 x86_64 模拟器先在 v0.1.4 复现：延迟 8 秒的 steer 期间切到后台再返回，完成后仍显示“正在提交”且不能输入。覆盖安装最终 v0.1.5 APK 保留登录，同一操作完成后可输入 `works-after-steer`，切换另一会话可输入 `works-in-other-thread`。键盘弹出时提示条固定在输入框上方；网页回答后，Android 提示条同步消失并显示可读答案。实际网页在 390×844 下验证选项与自由回答、保留聊天草稿、提交后继续输入及刷新历史不重现待答项；实际内嵌 JavaScript 摘要与最终构建一致，刷新后的控制台无 warning/error。
+
+四个 APK 均通过签名、ABI、v0.1.5 与递增版本号检查，签名证书与 v0.1.4 相同；四个服务端压缩包的版本、可执行文件摘要、内嵌 Web/AOT/UPX 元数据已核对。全部九个草稿 Release 文件的大小与 SHA-256 匹配本地产物。源码导出与 Git 历史 Gitleaks 无发现，1,806 项源码/归档内容的已知密钥扫描无命中。
+
+[v0.1.5 四平台原生运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40092561466)全部通过。Windows x64/ARM64 与 Linux x64/ARM64 均使用最终归档验证原生问答和结构化异步答案回传/历史，以及既有鉴权、权限、通知和内嵌网页；两个 Linux 架构另各通过完整 50 项契约。
