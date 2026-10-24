@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/conversation_controller.dart';
 import '../data/questions.dart';
+import 'composer_status_bar.dart';
 
 class QuestionBar extends StatelessWidget {
   const QuestionBar({super.key, required this.controller});
@@ -18,47 +19,28 @@ class QuestionBar extends StatelessWidget {
         0,
         (sum, draft) => sum + draft.questions.length,
       );
-      final colors = Theme.of(context).colorScheme;
-      return Container(
+      void showQuestions() => showDialog<void>(
+        context: context,
+        builder: (_) =>
+            QuestionDialog(controller: controller, response: response),
+      );
+      final available = controller.questionAvailable(response);
+      return ComposerStatusBar(
         key: const ValueKey('question-bar'),
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        padding: const EdgeInsets.only(left: 10, right: 4),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerLow,
-          border: Border(top: BorderSide(color: colors.outlineVariant)),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.question_answer_outlined,
-              size: 17,
-              color: colors.primary,
+        icon: Icons.question_answer_outlined,
+        title: '$count 个问题',
+        subtitle: response.questions.first.title,
+        onTap: available ? showQuestions : null,
+        actions: [
+          IconButton(
+            tooltip: response.requestId != null ? '核对提交结果' : '回答问题',
+            onPressed: available ? showQuestions : null,
+            icon: Icon(
+              response.requestId != null ? Icons.refresh : Icons.reply_rounded,
+              size: 20,
             ),
-            const SizedBox(width: 8),
-            Text('$count 个问题', style: const TextStyle(fontSize: 12)),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                response.questions.first.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            TextButton(
-              onPressed: !controller.questionAvailable(response)
-                  ? null
-                  : () => showDialog<void>(
-                      context: context,
-                      builder: (_) => QuestionDialog(
-                        controller: controller,
-                        response: response,
-                      ),
-                    ),
-              child: Text(response.requestId != null ? '核对提交结果' : '回答问题'),
-            ),
-          ],
-        ),
+          ),
+        ],
       );
     },
   );

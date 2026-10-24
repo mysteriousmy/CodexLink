@@ -14,6 +14,7 @@ import '../data/models.dart';
 import '../data/questions.dart';
 import 'question_prompt.dart';
 import 'queued_input_bar.dart';
+import 'composer_status_bar.dart';
 import '../platform/transport.dart' as transport;
 import 'file_preview.dart';
 import 'composer_commands.dart';
@@ -446,16 +447,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                             if (controller.goal != null &&
                                                 controller.goal?['status'] !=
                                                     'complete')
-                                              Padding(
-                                                padding:
-                                                    const EdgeInsets.fromLTRB(
-                                                      16,
-                                                      4,
-                                                      16,
-                                                      4,
-                                                    ),
-                                                child: _goalCard(context),
-                                              ),
+                                              _goalCard(context),
                                             QuestionBar(controller: controller),
                                             QueuedInputBar(
                                               controller: controller,
@@ -579,82 +571,42 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Widget _goalCard(BuildContext context) {
     final goal = controller.goal!;
-    final colors = Theme.of(context).colorScheme;
     final enabled =
         controller.canControl && widget.appController.usable && !_goalBusy;
-    return Material(
+    return ComposerStatusBar(
       key: const ValueKey('active-goal-bar'),
-      color: colors.primaryContainer.withValues(alpha: .4),
-      borderRadius: BorderRadius.circular(14),
-      child: Row(
-        children: [
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => _showGoal(context),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.flag_outlined, size: 18, color: colors.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Goal · ${goalStatus(goal['status'] as String?)}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            (goal['objective'] as String? ?? '目标').replaceAll(
-                              '\n',
-                              ' ',
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      icon: Icons.flag_outlined,
+      title: 'Goal · ${goalStatus(goal['status'] as String?)}',
+      subtitle: goal['objective'] as String? ?? '目标',
+      onTap: () => _showGoal(context),
+      actions: [
+        IconButton(
+          tooltip: '编辑目标',
+          onPressed: enabled ? () => _editGoal(context) : null,
+          icon: const Icon(Icons.edit_outlined, size: 18),
+        ),
+        IconButton(
+          tooltip: goal['status'] == 'active' ? '暂停目标' : '继续目标',
+          onPressed: enabled
+              ? () => _goalAction(
+                  () => controller.setGoal(
+                    status: goal['status'] == 'active' ? 'paused' : 'active',
+                  ),
+                )
+              : null,
+          icon: Icon(
+            goal['status'] == 'active'
+                ? Icons.pause_rounded
+                : Icons.play_arrow_rounded,
+            size: 20,
           ),
-          IconButton(
-            tooltip: '编辑目标',
-            onPressed: enabled ? () => _editGoal(context) : null,
-            icon: const Icon(Icons.edit_outlined, size: 18),
-          ),
-          IconButton(
-            tooltip: goal['status'] == 'active' ? '暂停目标' : '继续目标',
-            onPressed: enabled
-                ? () => _goalAction(
-                    () => controller.setGoal(
-                      status: goal['status'] == 'active' ? 'paused' : 'active',
-                    ),
-                  )
-                : null,
-            icon: Icon(
-              goal['status'] == 'active'
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
-              size: 20,
-            ),
-          ),
-          IconButton(
-            tooltip: '删除目标',
-            onPressed: enabled ? () => _goalAction(controller.clearGoal) : null,
-            icon: const Icon(Icons.delete_outline, size: 18),
-          ),
-        ],
-      ),
+        ),
+        IconButton(
+          tooltip: '删除目标',
+          onPressed: enabled ? () => _goalAction(controller.clearGoal) : null,
+          icon: const Icon(Icons.delete_outline, size: 18),
+        ),
+      ],
     );
   }
 

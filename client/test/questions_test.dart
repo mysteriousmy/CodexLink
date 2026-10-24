@@ -107,7 +107,7 @@ void main() {
           onError: (e) => fail('$e'),
         ),
       );
-      await t.tap(find.text('回答问题'));
+      await t.tap(find.byTooltip('回答问题'));
       await t.pumpAndSettle();
       expect(find.text('先验证核心流程，再发布。'), findsOneWidget);
       expect(
@@ -467,7 +467,7 @@ void main() {
       c.items.add(item);
       await show(t, QuestionBar(controller: c));
       expect(find.text('需要哪种风格？'), findsOneWidget);
-      await t.tap(find.text('回答问题'));
+      await t.tap(find.byTooltip('回答问题'));
       await t.pumpAndSettle();
       expect(find.text('简洁（推荐）'), findsOneWidget);
       await t.tap(find.text('其他回答'));

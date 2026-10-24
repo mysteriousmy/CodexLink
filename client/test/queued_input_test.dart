@@ -310,7 +310,7 @@ void main() {
         ),
       ),
     );
-    await t.tap(find.text('撤回'));
+    await t.tap(find.byTooltip('撤回'));
     await t.pumpAndSettle();
     final field = find.byType(TextField);
     expect(
@@ -392,9 +392,9 @@ void main() {
         await t.ensureVisible(field);
         await t.pump(const Duration(milliseconds: 200));
         expect(field.hitTestable(), findsOneWidget);
-        await t.ensureVisible(find.text('撤回').last);
+        await t.ensureVisible(find.byTooltip('撤回').last);
         await t.pump(const Duration(milliseconds: 200));
-        expect(find.text('撤回').last.hitTestable(), findsOneWidget);
+        expect(find.byTooltip('撤回').last.hitTestable(), findsOneWidget);
         expect(
           t.getRect(find.byKey(const ValueKey('composer-status-bars'))).bottom,
           lessThanOrEqualTo(t.getRect(find.byType(Composer)).top + .1),

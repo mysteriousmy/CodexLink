@@ -349,7 +349,7 @@ void main() {
       );
       expect(find.byType(ApprovalCard), findsNothing);
       expect(find.byType(Card), findsNothing);
-      expect(t.getSize(bar).height, lessThanOrEqualTo(52));
+      expect(t.getSize(bar).height, lessThanOrEqualTo(60));
       final before = t.getTopLeft(bar);
       expect(
         t.getBottomLeft(bar).dy,
