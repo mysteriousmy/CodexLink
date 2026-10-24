@@ -6,6 +6,10 @@ on:
         description: Published release tag to verify
         required: true
         default: v0.1.8
+      verify_windows_daemon:
+        description: Also attempt real Windows daemon startup (hosted runner job restrictions currently prevent it)
+        type: boolean
+        default: false
 permissions:
   # GitHub requires write access to see an unpublished draft release.
   # This manually dispatched workflow only downloads and tests its assets.
@@ -67,6 +71,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Gateway contract tests failed' }
           }
       - name: Verify real Codex shared-daemon cold start and lifetime
+        if: runner.os != 'Windows' || inputs.verify_windows_daemon
         run: |
           $ErrorActionPreference = 'Stop'
           $arch = if ($env:ASSET_SUFFIX -match 'arm64') { 'aarch64' } else { 'x86_64' }
@@ -92,3 +97,7 @@ jobs:
             python source/scripts/smoke-daemon.py $binary $codex
             if ($LASTEXITCODE -ne 0) { throw 'Real daemon smoke failed' }
           }
+      - name: Record Windows daemon validation boundary
+        if: runner.os == 'Windows' && !inputs.verify_windows_daemon
+        run: |
+          'Windows native package functionality passed using the protocol test double. Real daemon cold start and background lifetime are NOT verified: hosted runner job restrictions prevent the official Codex daemon from detaching. The optional verify_windows_daemon input retains the diagnostic check; run scripts/smoke-daemon.py from an ordinary, unrestricted Windows terminal for desktop validation.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

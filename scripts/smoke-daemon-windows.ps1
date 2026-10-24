@@ -1,5 +1,5 @@
 # GitHub Windows runners are elevated. Exercise the actual supported desktop
-# account context outside the runner's non-breakaway Windows job.
+# account context. Hosted runner job restrictions can still reject daemon startup.
 param([Parameter(Mandatory)][string]$Gateway, [Parameter(Mandatory)][string]$Codex)
 $ErrorActionPreference = 'Stop'
 $user = 'cld' + [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -7,7 +7,7 @@ $password = 'A1!' + [guid]::NewGuid().ToString('N')
 $root = Join-Path $env:SystemDrive ($user + '-smoke')
 $python = (Get-Command python).Source
 $created = $false
-$bootstrapProcess = $null
+$process = $null
 try {
     New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -AccountNeverExpires | Out-Null
     $created = $true
@@ -37,53 +37,28 @@ with open(r'$root\output.log', 'w', encoding='utf-8') as log:
 Path(r'$root\result.txt').write_text(str(code))
 sys.exit(code)
 "@ | Set-Content "$root\run.py"
-    $powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     Start-Service seclogon
-    $credential = [pscredential]::new("$env:COMPUTERNAME\$user", (ConvertTo-SecureString $password -AsPlainText -Force))
-    $credential | Export-Clixml "$root\credential.xml"
-    @"
-`$ErrorActionPreference = 'Stop'
-try {
-    `$credential = Import-Clixml '$root\credential.xml'
-    `$start = New-Object System.Diagnostics.ProcessStartInfo
-    `$start.FileName = '$python'
-    `$start.Arguments = '$root\run.py'
-    `$start.WorkingDirectory = '$root'
-    `$start.UseShellExecute = `$false
-    `$start.LoadUserProfile = `$true
-    `$start.UserName = `$credential.GetNetworkCredential().UserName
-    `$start.Domain = `$credential.GetNetworkCredential().Domain
-    `$start.Password = `$credential.Password
-    `$process = [System.Diagnostics.Process]::Start(`$start)
-    if (!`$process.WaitForExit(240000)) { `$process.Kill(); throw 'Standard-user launcher timed out' }
-    if (!(Test-Path '$root\result.txt')) { throw "Launcher exited without a result: `$(`$process.ExitCode)" }
-} catch {
-    `$_ | Out-File '$root\bootstrap-error.log'
-    Set-Content '$root\result.txt' 1
-}
-"@ | Set-Content "$root\bootstrap.ps1"
-    # WMI's documented breakaway flag leaves the runner's job before creating
-    # the ordinary-user process. Only this disposable CI environment uses it.
-    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ CreateFlags = [uint32]16777216; ShowWindow = [uint16]0 }
-    $launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-        CommandLine = "`"$powershell`" -NoProfile -ExecutionPolicy Bypass -File `"$root\bootstrap.ps1`""
-        CurrentDirectory = $root
-        ProcessStartupInformation = $startup
-    }
-    if ($launch.ReturnValue -ne 0) { throw "WMI launcher failed: $($launch.ReturnValue)" }
-    $bootstrapProcess = Get-Process -Id $launch.ProcessId -ErrorAction SilentlyContinue
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $python
+    $start.Arguments = "$root\run.py"
+    $start.WorkingDirectory = $root
+    $start.UseShellExecute = $false
+    $start.LoadUserProfile = $true
+    $start.UserName = $user
+    $start.Domain = $env:COMPUTERNAME
+    $start.Password = ConvertTo-SecureString $password -AsPlainText -Force
+    $process = [System.Diagnostics.Process]::Start($start)
     $end = (Get-Date).AddMinutes(5)
     while (!(Test-Path "$root\result.txt") -and (Get-Date) -lt $end) {
         Start-Sleep -Seconds 1
-        if (!$bootstrapProcess -or $bootstrapProcess.HasExited) { break }
+        if (!$process -or $process.HasExited) { break }
     }
     if (Test-Path "$root\output.log") { Get-Content "$root\output.log" }
-    if (Test-Path "$root\bootstrap-error.log") { Get-Content "$root\bootstrap-error.log" }
     if (!(Test-Path "$root\result.txt")) { throw 'Standard-user daemon smoke timed out' }
     if ([int](Get-Content "$root\result.txt") -ne 0) { throw 'Standard-user daemon smoke failed' }
 } finally {
-    if ($bootstrapProcess -and !$bootstrapProcess.HasExited) {
-        if (!$bootstrapProcess.WaitForExit(5000)) { $bootstrapProcess.Kill(); $bootstrapProcess.WaitForExit() }
+    if ($process -and !$process.HasExited) {
+        if (!$process.WaitForExit(5000)) { $process.Kill(); $process.WaitForExit() }
     }
     if ($created) { Remove-LocalUser -Name $user }
     if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue }
