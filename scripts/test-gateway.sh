@@ -5,7 +5,8 @@ cd "$ROOT_DIR"
 python3 -m venv .local/test-venv
 .local/test-venv/bin/python -m pip install -q -r tests/requirements.txt
 if [[ "${1:-}" == "--aot" ]]; then
-  export CODEXLINK_TEST_COMMAND="${CODEXLINK_TEST_COMMAND:-$ROOT_DIR/.local/release-v0.1.0/linux-musl-x64/CodexLink.Server}"
+  APP_VERSION="$(sed -n 's/^version: \([^+]*\).*/\1/p' client/pubspec.yaml)"
+  export CODEXLINK_TEST_COMMAND="${CODEXLINK_TEST_COMMAND:-$ROOT_DIR/.local/release-v$APP_VERSION/linux-musl-x64/CodexLink.Server}"
 else
   dotnet build server/CodexLink.Server -c Release
 fi
