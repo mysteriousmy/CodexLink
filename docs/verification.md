@@ -332,4 +332,8 @@ Flutter 全套 **112 项**通过，Chrome 交互回归 **44 项**通过，等待
 | 通知点击进入准确会话，关闭遮挡层 | `question_notice_shows_preview_opens_thread_and_clears_only_answered_question`、`system_notification_click_schedules_idle_ui_and_opens_matching_thread` |
 | 通知连接状态刷新与主动重连 | `notification_dialog_refreshes_reconnected_service_and_offers_retry`；Android Release 局域网 HTTP 复现实测 |
 
-扩展后的最终 Linux x64 UPX Native AOT 程序通过新增自动 start/steer、提问摘要/逐题清理的冒烟检查和全部 **72 项**网关契约（21.688 秒）。Chromium 实际 Web 验证问题气泡和准确会话跳转、系统通知队列中的两题摘要、回答第一题后仅保留第二题，以及通知点击事件打开剩余问题所在会话。系统通知点击由自动化合成，浏览器拒绝抢焦点（`InvalidAccessError`），但会话路由和问题显示成功；不冒称人工点击桌面通知。Android 同样在 App 后台收到两题提醒，从另一客户端答一题后仅清除对应的系统通知。
+扩展后的最终 Linux x64 UPX Native AOT 程序通过新增自动 start/steer、提问摘要/逐题清理的冒烟检查和全部 **72 项**网关契约（90.687 秒）。Chromium 实际 Web 验证问题气泡和准确会话跳转、系统通知队列中的两题摘要、回答第一题后仅保留第二题，以及通知点击事件打开剩余问题所在会话。系统通知点击由自动化合成，浏览器拒绝抢焦点（`InvalidAccessError`），但会话路由和问题显示成功；不冒称人工点击桌面通知。Android 同样在 App 后台收到两题提醒，从另一客户端答一题后仅清除对应的系统通知。
+
+[v0.1.7 四平台最终原生运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40112034624)全部通过，源码提交为 `06ea14e9fbe461e214444c681365800041e8f611`。Windows x64/ARM64 与 Linux x64/ARM64 下载并校验最终发布归档，覆盖上述新增操作和既有权限、问答、队列及内嵌网页；Linux x64/ARM64 另各通过完整 **72 项**契约（100.876 / 85.809 秒）。
+
+最终四个服务端包与四种 APK 已重新核对版本、可执行文件摘要、ABI、签名和递增版本号，Android 签名证书与 v0.1.6 一致；八个分发文件通过 SHA256SUMS。九个远端 Release 资产的大小与 SHA-256 均匹配本地产物。已知私密值检查覆盖 1,819 份源码、原生文件与归档内容，匹配 0；Gitleaks 源码导出和 21 次提交历史无发现。Android 模拟器中安装的最终 APK 摘要也与发布资产一致。
