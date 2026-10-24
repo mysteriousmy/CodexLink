@@ -93,7 +93,14 @@ def main():
                 print(diagnostics.replace(token, '[REDACTED]'), file=sys.stderr)
                 raise
             finally:
-                process.terminate()
+                if process.poll() is None:
+                    if os.name == 'nt':
+                        # TerminateProcess only kills the gateway. The fake peer
+                        # can retain inherited log handles during its own exit.
+                        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                       check=True, capture_output=True, timeout=15)
+                    else:
+                        process.terminate()
                 try:
                     process.wait(15)
                 except subprocess.TimeoutExpired:
