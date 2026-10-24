@@ -56,6 +56,11 @@ class AppController extends ChangeNotifier {
   bool loadingThreads = false;
   String? threadListError;
   int _threadListGeneration = 0;
+  int _threadEventRevision = 0;
+  final Map<String, Map<String, (int, dynamic)>> _threadChanges = {};
+  final Map<String, String> _threadActions = {};
+  bool get threadActionsSupported => status['threadActions'] == true;
+  bool threadActionBusy(String id) => _threadActions.containsKey(id);
   final ValueNotifier<String?> error = ValueNotifier(null);
   WebSocketChannel? _socket;
   StreamSubscription<dynamic>? _subscription;
@@ -109,6 +114,8 @@ class AppController extends ChangeNotifier {
     _stopConnection();
     _accountGeneration++;
     _threadListGeneration++;
+    _threadChanges.clear();
+    _threadActions.clear();
     archivedThreads = false;
     threadCursor = null;
     threadSearch = '';
@@ -167,6 +174,7 @@ class AppController extends ChangeNotifier {
     }
     final generation = ++_threadListGeneration;
     final selectedProject = projectId;
+    final eventRevision = _threadEventRevision;
     loadingThreads = true;
     threadListError = null;
     notifyListeners();
@@ -187,6 +195,17 @@ class AppController extends ChangeNotifier {
         return;
       }
       final data = asMaps(result['data']);
+      for (final row in data) {
+        final change = _threadChanges[row['id']];
+        if (change != null) {
+          for (final field in change.entries) {
+            if (field.value.$1 > eventRevision) row[field.key] = field.value.$2;
+          }
+        }
+      }
+      data.removeWhere(
+        (row) => row['archived'] != null && row['archived'] != archivedThreads,
+      );
       if (more) {
         threads.addAll(
           data.where(
@@ -208,6 +227,125 @@ class AppController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  Future<void> changeThreadLifecycle(String id, String action) async {
+    if (!usable ||
+        !threadActionsSupported ||
+        !const {'archive', 'unarchive', 'close'}.contains(action)) {
+      throw const ApiError('当前连接不支持会话操作，请更新服务端并等待连接恢复。');
+    }
+    if (threadActionBusy(id)) return;
+    if (conversation.threadId == id &&
+        (conversation.sending ||
+            conversation.uncertain ||
+            conversation.permissionsBusy ||
+            conversation.queueActionBusy)) {
+      throw const ApiError('请先等待此会话的提交完成并核对结果，再操作会话。');
+    }
+    final generation = _accountGeneration;
+    final requestId = newRequestId();
+    final eventRevision = _threadEventRevision;
+    _threadActions[id] = requestId;
+    notifyListeners();
+    try {
+      final response = asMap(
+        await api.request(
+          'POST',
+          '/api/threads/$id/$action',
+          body: {'requestId': requestId},
+        ),
+      );
+      if (_disposed || generation != _accountGeneration || !authenticated) {
+        return;
+      }
+      if ((_threadChanges[id]?['closedByClient']?.$1 ?? 0) > eventRevision) {
+        return;
+      }
+      _applyThreadLifecycle(
+        id,
+        action == 'unarchive'
+            ? 'unarchived'
+            : response['state'] as String? ?? action,
+      );
+    } catch (error) {
+      if (_disposed || generation != _accountGeneration || !authenticated) {
+        return;
+      }
+      // Reconcile an ambiguous response without replaying a lifecycle mutation.
+      if (action != 'unarchive' &&
+          (error is! ApiError ||
+              error.status == null ||
+              error.status! >= 500)) {
+        try {
+          final receipt = asMap(
+            await api.request('GET', '/api/operations/$requestId'),
+          );
+          if (_disposed || generation != _accountGeneration || !authenticated) {
+            return;
+          }
+          if (receipt['state'] == 'accepted') {
+            if ((_threadChanges[id]?['closedByClient']?.$1 ?? 0) >
+                eventRevision) {
+              return;
+            }
+            _applyThreadLifecycle(
+              id,
+              asMap(receipt['result'])['state'] as String,
+            );
+            return;
+          }
+        } catch (_) {
+          /* Preserve the original failure and keep the row. */
+        }
+      }
+      rethrow;
+    } finally {
+      if (!_disposed &&
+          generation == _accountGeneration &&
+          _threadActions[id] == requestId) {
+        _threadActions.remove(id);
+        notifyListeners();
+      }
+    }
+  }
+
+  void _patchThread(String id, JsonMap fields) {
+    final changes = _threadChanges.putIfAbsent(id, () => {});
+    final revision = ++_threadEventRevision;
+    for (final field in fields.entries) {
+      changes[field.key] = (revision, field.value);
+    }
+    if (_threadChanges.length > 1024) {
+      _threadChanges.remove(_threadChanges.keys.first);
+    }
+    for (final row in threads.where((row) => row['id'] == id)) {
+      row.addAll(fields);
+    }
+  }
+
+  void _applyThreadLifecycle(String id, String state) {
+    if (state == 'archived' || state == 'unarchived') {
+      final archived = state == 'archived';
+      _patchThread(id, {
+        'archived': archived,
+        'status': {'type': 'notLoaded'},
+        'closePending': false,
+        'closedByClient': archived,
+      });
+      if (archived != archivedThreads) {
+        threads.removeWhere((t) => t['id'] == id);
+      }
+      conversation.detach(id, archived: archived);
+    } else if (state == 'closing' || state == 'closed') {
+      _patchThread(id, {
+        'closePending': state == 'closing',
+        'closedByClient': true,
+        if (state == 'closed') 'status': {'type': 'notLoaded'},
+      });
+      conversation.detach(id);
+    }
+    notifyListeners();
   }
 
   Future<void> selectProject(String? value) async {
@@ -434,6 +572,7 @@ class AppController extends ChangeNotifier {
       conversation.queueSupported = status['queuedMessages'] == true;
       unawaited(_configureNotifications());
       await conversation.reload();
+      await loadThreads();
       if (!_currentConnection(generation)) return;
       for (final event in _buffer) {
         _dispatch(event);
@@ -476,25 +615,36 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     } else if (method == 'account/updated') {
       _accountGeneration++;
+      _threadActions.clear();
+      _threadChanges.clear();
       accountUsage = {};
       unawaited(refreshUsage());
     }
-    if (method == 'thread/status/changed' ||
-        method == 'thread/name/updated' ||
-        method == 'turn/started' ||
-        method == 'turn/completed') {
-      final row = threads
-          .where((t) => t['id'] == parameters['threadId'])
-          .firstOrNull;
-      if (row != null) {
+    final id = parameters['threadId'] as String?;
+    if (id != null) {
+      if (method == 'thread/lifecycle/changed') {
+        _applyThreadLifecycle(id, parameters['state'] as String? ?? '');
+      } else if (method == 'thread/closed' ||
+          method == 'thread/archived' ||
+          method == 'thread/unarchived') {
+        _applyThreadLifecycle(id, method.substring('thread/'.length));
+      } else if (method == 'thread/status/changed' ||
+          method == 'thread/name/updated' ||
+          method == 'turn/started' ||
+          method == 'turn/completed') {
+        final fields = <String, dynamic>{};
         if (method == 'thread/status/changed') {
-          row['status'] = parameters['status'];
+          fields['status'] = parameters['status'];
+          if (asMap(parameters['status'])['type'] == 'notLoaded') {
+            fields['closePending'] = false;
+          }
         }
         if (method == 'thread/name/updated') {
-          row['name'] = parameters['threadName'] ?? parameters['name'];
+          fields['name'] = parameters['threadName'] ?? parameters['name'];
         }
-        if (method == 'turn/started') row['status'] = {'type': 'active'};
-        if (method == 'turn/completed') row['status'] = {'type': 'idle'};
+        if (method == 'turn/started') fields['status'] = {'type': 'active'};
+        if (method == 'turn/completed') fields['status'] = {'type': 'idle'};
+        _patchThread(id, fields);
         notifyListeners();
       }
     }
@@ -648,6 +798,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _threadActions.clear();
+    _threadChanges.clear();
     await notifications.clear();
     if (kIsWeb) await api.request('DELETE', '/api/auth/session');
     await transport.saveToken(null);

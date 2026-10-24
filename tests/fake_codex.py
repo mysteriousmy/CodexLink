@@ -8,6 +8,7 @@ lock = threading.RLock()
 threads, goals, approvals, projects, project_requests = {}, {}, {}, {}, {}
 settings = {}
 queues = {}
+loaded, subscribed = set(), set()
 usage = {
     "total": {"totalTokens": 1200, "inputTokens": 1000, "outputTokens": 200},
     "last": {"totalTokens": 300},
@@ -45,6 +46,22 @@ def finish(tid):
     t["status"] = "completed"
     event("turn/completed", threadId=tid, turn=t)
     dispatch_queue(tid)
+    if tid not in subscribed:
+        unload(tid)
+
+
+def thread_status(tid):
+    if tid not in loaded:
+        return {'type':'notLoaded'}
+    return {'type':'active' if any(t['status'] == 'inProgress' for t in threads[tid]['turns']) else 'idle'}
+
+
+def unload(tid):
+    if tid in subscribed or thread_status(tid)['type'] == 'active':
+        return
+    loaded.discard(tid)
+    event('thread/status/changed', threadId=tid, status={'type':'notLoaded'})
+    event('thread/closed', threadId=tid)
 
 
 def dispatch_queue(tid):
@@ -140,8 +157,14 @@ def call(method, p):
             "turns": [],
         }
         settings[tid] = {'approvalPolicy':p['approvalPolicy'], 'approvalsReviewer':p['approvalsReviewer'], 'sandboxPolicy':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, 'activePermissionProfile':{'id':p['permissions'], 'extends':None}}
+        loaded.add(tid)
+        subscribed.add(tid)
         return {"thread": threads[tid], **settings[tid]}
     if method == "thread/list":
+        if Path(os.environ['CODEXLINK_DATA'], 'close-finish').exists():
+            for pending in list(loaded - subscribed):
+                if thread_status(pending)['type'] == 'active': finish(pending)
+        for thread_id, thread in threads.items(): thread['status'] = thread_status(thread_id)
         data = [t for t in threads.values() if bool(t.get("archived")) == bool(p.get("archived"))]
         if p.get("cwd"): data = [t for t in data if t["cwd"] == p["cwd"]]
         if p.get('projectId'): data = [t for t in data if t.get('projectId') == p['projectId']]
@@ -155,8 +178,28 @@ def call(method, p):
         return {"files":[{"path":"notes.txt", "root":p["roots"][0], "file_name":"notes.txt", "match_type":"file", "score":10}]}
     if method == "mcpServerStatus/list":
         return {"data":[{"name":"fixture-mcp", "authStatus":"unsupported", "runtimeStatus":"connected", "tools":{"read_note":{"name":"read_note", "description":"Reads a fixture note"}}, "resources":[{"name":"note", "uri":"fixture://note"}], "resourceTemplates":[]}], "nextCursor":None}
+    if method == 'thread/archive':
+        if Path(os.environ['CODEXLINK_DATA'], 'archive-error').exists(): raise ValueError('archive rejected')
+        threads[tid]['archived'] = True
+        for turn in threads[tid]['turns']:
+            if turn['status'] == 'inProgress': turn['status'] = 'interrupted'
+        subscribed.discard(tid)
+        unload(tid)
+        event('thread/archived', threadId=tid)
+        return {}
+    if method == 'thread/unsubscribe':
+        override = Path(os.environ['CODEXLINK_DATA'], 'close-result')
+        if override.exists(): return {'status':override.read_text().strip()}
+        if tid not in loaded: return {'status':'notLoaded'}
+        if tid not in subscribed: return {'status':'notSubscribed'}
+        subscribed.discard(tid)
+        if Path(os.environ['CODEXLINK_DATA'], 'close-disconnect').exists(): os._exit(7)
+        if Path(os.environ['CODEXLINK_DATA'], 'close-before-response').exists(): unload(tid)
+        else: later(lambda: unload(tid))
+        return {'status':'unsubscribed'}
     if method == "thread/unarchive":
         threads[tid]["archived"] = False
+        event('thread/unarchived', threadId=tid)
         return {"thread": threads[tid]}
     if method in ["thread/read", "thread/resume"]:
         if tid == "invalid-metadata":
@@ -168,6 +211,10 @@ def call(method, p):
             threads[tid] = {"id":tid, "cwd":str(Path(os.environ["CODEXLINK_DATA"]).parent), "preview":"Already running", "turns":[{"id":"existing-turn", "status":"inProgress", "items":[]}]}
         if method == "thread/resume":
             assert set(p) == {"threadId", "excludeTurns"}, "resume must preserve configuration"
+            if threads[tid].get('archived'): raise ValueError('thread archived')
+            loaded.add(tid)
+            subscribed.add(tid)
+        threads[tid]['status'] = thread_status(tid)
         return {"thread": threads[tid], **settings.get(tid, {})}
     if method == "thread/turns/list":
         return {"data": threads[tid]["turns"], "nextCursor": None}

@@ -276,9 +276,20 @@ void main() {
   });
 
   testWidgets('failed_resync_retries_with_full_snapshot', (t) async {
-    var calls = 0;
+    final calls = <String>[];
     final api = FixtureApi((r) async {
-      if (++calls == 1) throw http.ClientException('connection closed');
+      calls.add(r.url.path);
+      if (calls.length == 1) throw http.ClientException('connection closed');
+      if (r.url.path == '/api/threads') {
+        return json({
+          'data': [
+            {
+              'id': 'running',
+              'status': {'type': 'active'},
+            },
+          ],
+        });
+      }
       return json({'codex': 'ready'});
     });
     final c = controller(api);
@@ -291,7 +302,14 @@ void main() {
     expect(api.epochs.last, isNull);
     await ready(t, api, resync: true);
     expect(c.connection, app.ConnectionState.connected);
-    expect(calls, 3);
+    expect(calls, [
+      '/api/status',
+      '/api/status',
+      '/api/status',
+      '/api/threads',
+    ]);
+    expect(c.threads.single['id'], 'running');
+    expect(asMap(c.threads.single['status'])['type'], 'active');
     c.background();
   });
 

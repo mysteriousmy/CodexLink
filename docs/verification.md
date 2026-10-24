@@ -288,3 +288,25 @@ Android 16 x86_64 模拟器实测会话和 Diff 返回手势预览、取消、�
 全部九个草稿 Release 资产的大小和 SHA-256 与本地一致。源码导出及 Git 历史 Gitleaks 无发现；1,812 项源码、原生文件及包内内容的已知私密值扫描为 0 命中。v0.1.5 的发布正文、目标提交以及九个资产的 ID、大小、摘要和更新时间均未改变。
 
 [v0.1.6 四平台原生运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40103494054)全部通过：Linux x64/ARM64 与 Windows x64/ARM64 均直接运行最终发布归档，覆盖原生待发送队列的添加/读取/撤回/立即发送、问答、权限、通知和内嵌网页；两个 Linux 架构各通过完整 **57 项**服务端契约。
+
+## v0.1.7 会话状态与列表操作（2026-10-25）
+
+运行中会话使用青绿色与“运行中”标记。手机右滑展开右侧归档/关闭；Web 鼠标悬停和键盘聚焦展开，未运行或等待卸载时隐藏关闭。浅色/深色、320 px 宽度、纵向滚动和草稿保留均有直接断言。
+
+Flutter 全套 **112 项**通过，Chrome 交互回归 **44 项**通过，等待卸载按钮断言更新后 Chrome 组件 **4 项**再次通过；`flutter analyze` 无问题。新增 Python 生命周期 **7 项**在 Managed Release 下通过。组件在 360 px 宽度以中英文和真实图标字体生成浅色/深色渲染图并检查，无溢出；这项为测试渲染，并非 Android 实机性能测量。
+
+| Requirement | Evidence |
+| --- | --- |
+| 正在运行的会话特殊颜色与文本 | `running_thread_uses_distinct_color_and_label`：明暗、选中、空闲对照 |
+| 手机右滑，在右边显示归档/关闭；未运行不显示关闭 | `right_swipe_reveals_archive_and_running_close`：右侧位置、两个实际回调、空闲与等待卸载隐藏关闭、反向收回；`vertical_scroll_does_not_reveal_or_trigger_thread_actions` |
+| Web 悬停与键盘操作 | `mouse_hover_and_keyboard_reveal_thread_actions`，Chrome 实际执行 Web 分支 |
+| 归档、恢复保留历史与原会话 | `test_archive_restore_preserves_history_and_is_idempotent` |
+| 原生卸载、等待真实通知、显式重开 | `test_active_close_waits_for_native_unload_and_requires_explicit_reopen`、`test_closed_notification_before_unsubscribe_response_stays_closed`、`detached_conversation_reopens_explicitly_and_ignores_old_snapshot` |
+| 旧 HTTP/事件不能恢复过期行或等待状态 | `thread_status_refresh_does_not_overwrite_newer_events`、`archive_event_prevents_stale_list_resurrection_and_restore_updates_filter`、`native_close_event_wins_over_late_closing_response`、`failed_resync_retries_with_full_snapshot` |
+| 草稿保留、重复点击和失败核对 | `thread_actions_preserve_drafts_and_block_duplicate_submits`、`archive_failure_preserves_row_and_draft_and_unknown_response_reconciles_once`、`unfinished_message_prevents_thread_action` |
+| 鉴权、原生拒绝、未知结果及账号切换 | `test_lifecycle_auth_invalid_request_and_conflicting_retry_do_not_mutate`、`test_native_rejections_preserve_session_and_do_not_claim_unload`、`test_lost_close_response_does_not_resubscribe_or_repeat_on_refresh`、`late_thread_action_cannot_change_new_account_state` |
+| 已归档/卸载 Goal 不继续占用项目 | `test_archived_or_unloaded_goal_does_not_block_another_project_task`；保留原生 Goal 元数据 |
+
+隔离的 Codex CLI **0.164.0** stdio 实例，以临时配置和 ephemeral 线程验证 `thread/unsubscribe → unsubscribed → thread/closed → 再次 unsubscribe 返回 notLoaded`。只对测试进程设置 `thread_unload_delay_secs=0`，**没有提交 turn、没有调用模型、没有修改用户共享 daemon 或全局配置**。真实卸载遵守原生空闲、无其他订阅和延迟条件；当前关闭操作不主动中断任务或暂停 Goal，不将取消订阅冒充已卸载。规则依据 [Codex 原生卸载实现](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs)。
+
+事件补丁按字段版本合并、最多保留 1024 个线程；重连增加一次当前筛选的列表读取，无周期性列表轮询。验证不包含新一轮 Android 实机帧时间、蜂窝网络或 iOS 签名测试。

@@ -10,6 +10,7 @@ import 'conversation_screen.dart';
 import 'usage_panels.dart';
 import 'workspace_picker.dart';
 import 'task_notifications.dart';
+import 'thread_list_tile.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.controller});
@@ -20,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _showConversation = false;
+  String? _revealedThreadId;
   MaterialPageRoute<void>? _conversationRoute;
   final _search = TextEditingController();
   final _threadScroll = ScrollController();
@@ -464,34 +466,47 @@ class _HomeScreenState extends State<HomeScreen> {
                         final title = threadTitle(thread);
                         final active =
                             asMap(thread['status'])['type'] == 'active';
+                        final id = thread['id'] as String;
                         return Padding(
+                          key: ValueKey('thread-row-$id'),
                           padding: const EdgeInsets.only(bottom: 4),
-                          child: ListTile(
+                          child: ThreadListTile(
+                            id: id,
+                            title: title,
+                            subtitle:
+                                '${threadLocation(thread)} · ${threadSourceLabel(thread)}\n${_time(thread['updatedAt'])}',
+                            running: active,
+                            closing: thread['closePending'] == true,
                             selected: selected,
-                            selectedTileColor: colors.secondaryContainer
-                                .withValues(alpha: .7),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                            archived: controller.archivedThreads,
+                            revealed: _revealedThreadId == id,
+                            busy: controller.threadActionBusy(id),
+                            onReveal: (open) => setState(
+                              () => _revealedThreadId = open ? id : null,
                             ),
-                            leading: Icon(
-                              active
-                                  ? Icons.motion_photos_on_rounded
-                                  : Icons.chat_bubble_outline_rounded,
-                              size: 19,
-                            ),
-                            title: Text(
-                              title.replaceAll('\n', ' '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            subtitle: Text(
-                              '${threadLocation(thread)} · ${threadSourceLabel(thread)}\n${_time(thread['updatedAt'])}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                            onTap: () => _select(thread['id'] as String),
+                            onOpen: () => _select(id),
+                            onArchive:
+                                controller.usable &&
+                                    controller.threadActionsSupported
+                                ? () => _perform(
+                                    () => controller.changeThreadLifecycle(
+                                      id,
+                                      controller.archivedThreads
+                                          ? 'unarchive'
+                                          : 'archive',
+                                    ),
+                                  )
+                                : null,
+                            onClose:
+                                controller.usable &&
+                                    controller.threadActionsSupported
+                                ? () => _perform(
+                                    () => controller.changeThreadLifecycle(
+                                      id,
+                                      'close',
+                                    ),
+                                  )
+                                : null,
                           ),
                         );
                       },

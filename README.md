@@ -36,6 +36,12 @@ Real Web and Android Release UI with fictional demo conversations, projects and 
 - **Understand usage.** View conversation tokens, context usage, Goal consumption and the account usage/quota data exposed by Codex. Missing metrics stay unknown instead of being displayed as zero.
 - **Use a phone-sized interface.** Compact session navigation, dark/light themes, keyboard-aware composition and Android system-back navigation. Returning to the list keeps the draft.
 
+## Manage sessions
+
+With the gateway and client on **v0.1.7**, running sessions have a teal background and a **运行中** label. Swipe a mobile row to the right to reveal trailing **归档** and **关闭** actions; an idle row only offers archive. Web reveals the same actions on mouse hover or keyboard focus. Archived rows offer restore.
+
+Archive uses Codex's native archive and keeps saved history. Close unsubscribes this gateway from the running instance. Codex unloads it after it becomes idle, other subscribers have detached, and its configured unload delay expires. Until the native closed event arrives, the list shows **等待卸载**. Close does not interrupt a turn or pause a Goal. If another client owns the instance and this gateway is not subscribed, the action reports that it cannot unload it. Open the session again to resume its original ID and history; refresh alone does not reopen a closed session. Composer drafts and references are preserved.
+
 ## Enable task notifications
 
 Upgrade both the gateway and Android app to v0.1.3 or later. Open the session-list menu → **任务通知** (Task notifications), select **开启系统通知** and grant Android's notification permission. For lock-screen reminders, also select **允许锁屏后台运行**; some phones require allowing auto-start/background activity in system settings. Android keeps a quiet ongoing connection notification and does not require FCM or a third-party relay.
@@ -239,7 +245,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.6
+python3 scripts/build-release.py --all --no-upx --version 0.1.7
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -286,7 +292,7 @@ cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.6/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.7/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

@@ -102,6 +102,7 @@ class ConversationController extends ChangeNotifier {
   bool _reloadOverflow = false;
   bool canControl = true;
   bool archived = false;
+  bool detached = false;
   String? controlReason;
   bool loading = false;
   bool sending = false;
@@ -238,6 +239,7 @@ class ConversationController extends ChangeNotifier {
     _answeredQuestionIds.clear();
     goalMode = false;
     this.archived = archived;
+    detached = false;
     canControl = !archived;
     controlReason = null;
     draft = preferences.getString(_draftKey(id)) ?? '';
@@ -260,12 +262,12 @@ class ConversationController extends ChangeNotifier {
     itemsCursor = null;
     loadingOlder = false;
     olderError = null;
-    await reload();
+    await reload(reopen: true);
   }
 
-  Future<void> reload() async {
+  Future<void> reload({bool reopen = false}) async {
     final id = threadId;
-    if (id == null) return;
+    if (id == null || (detached && !reopen)) return;
     final generation = ++_generation;
     loadingOlder = false;
     olderError = null;
@@ -279,7 +281,7 @@ class ConversationController extends ChangeNotifier {
         await api.request(
           'GET',
           '/api/threads/$id',
-          query: {'archived': '$archived'},
+          query: {'archived': '$archived', if (reopen) 'reopen': 'true'},
         ),
       );
       final history = asMap(await api.request('GET', '/api/threads/$id/items'));
@@ -289,6 +291,7 @@ class ConversationController extends ChangeNotifier {
       canControl = snapshot['canControl'] != false;
       controlReason = snapshot['controlReason'] as String?;
       archived = snapshot['archived'] == true;
+      detached = snapshot['closed'] == true;
       model = thread['model'] as String?;
       effort = thread['reasoningEffort'] as String?;
       activeTurnId = snapshot['activeTurnId'] as String?;
@@ -318,12 +321,29 @@ class ConversationController extends ChangeNotifier {
     }
   }
 
+  void detach(String id, {bool archived = false}) {
+    if (threadId != id) return;
+    _generation++;
+    _queueRevision++;
+    _queueTimer?.cancel();
+    detached = true;
+    this.archived = archived;
+    canControl = false;
+    activeTurnId = null;
+    activity = null;
+    approvals = [];
+    loading = false;
+    controlReason = archived ? '会话已归档，恢复后可继续。' : '会话已关闭或正在等待卸载，重新打开后可继续。';
+    notifyListeners();
+  }
+
   Future<void> unarchive() async {
     final id = threadId;
     if (id == null) return;
     await api.request('POST', '/api/threads/$id/unarchive');
     archived = false;
-    await reload();
+    detached = false;
+    await reload(reopen: true);
   }
 
   Future<void> loadOlder() async {
@@ -428,6 +448,7 @@ class ConversationController extends ChangeNotifier {
   }
 
   void handleEvent(String method, JsonMap parameters) {
+    if (detached) return;
     if (loading &&
         (parameters['threadId'] == threadId ||
             method.startsWith('approval/'))) {
@@ -1364,6 +1385,7 @@ class ConversationController extends ChangeNotifier {
     _duringReload.clear();
     canControl = true;
     archived = false;
+    detached = false;
     controlReason = null;
     loading = false;
     sending = false;

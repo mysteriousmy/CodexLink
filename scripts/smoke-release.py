@@ -146,7 +146,34 @@ def main():
                 sent = json.loads(request(f"/api/threads/{thread}/queue/{queued['id']}/send", {'requestId':str(uuid.uuid4()), 'expectedTurnId':turn})[2])
                 assert sent['state'] == 'sent'
                 assert json.loads(request(f'/api/threads/{thread}/queue')[2])['data'] == []
-                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission, notification JSON/SSE, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now')
+                deadline = time.monotonic() + 10
+                while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
+                    if time.monotonic() > deadline: raise TimeoutError('Queued steer did not complete')
+                    time.sleep(.05)
+                assert json.loads(request('/api/status')[2])['threadActions'] is True
+                request(f'/api/threads/{thread}/turns', {'requestId':str(uuid.uuid4()), 'text':'hold'})
+                close_id = str(uuid.uuid4())
+                result = json.loads(request(f'/api/threads/{thread}/close', {'requestId':close_id})[2])
+                assert result['state'] == 'closing'
+                assert json.loads(request(f'/api/threads/{thread}/close', {'requestId':close_id})[2]) == result
+                row = json.loads(request('/api/threads')[2])['data'][0]
+                assert row['status']['type'] == 'active' and row['closePending']
+                assert json.loads(request(f'/api/threads/{thread}')[2])['canControl'] is False
+                (data / 'close-finish').touch()
+                deadline = time.monotonic() + 10
+                while True:
+                    row = json.loads(request('/api/threads')[2])['data'][0]
+                    if row['status']['type'] == 'notLoaded' and not row['closePending']: break
+                    if time.monotonic() > deadline: raise TimeoutError('Native unload did not complete')
+                    time.sleep(.05)
+                assert json.loads(request(f'/api/threads/{thread}?reopen=true')[2])['canControl'] is True
+                history = json.loads(request(f'/api/threads/{thread}/items')[2])['data']
+                assert json.loads(request(f'/api/threads/{thread}/archive', {'requestId':str(uuid.uuid4())})[2])['state'] == 'archived'
+                assert json.loads(request('/api/threads')[2])['data'] == []
+                assert json.loads(request('/api/threads?archived=true')[2])['data'][0]['id'] == thread
+                request(f'/api/threads/{thread}/unarchive', {})
+                assert json.loads(request(f'/api/threads/{thread}/items')[2])['data'] == history
+                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission, notification JSON/SSE, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now, thread close/unload/reopen/archive/restore')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact
                 # its generated gateway token before exposing startup failures.

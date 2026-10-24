@@ -243,9 +243,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     onPressed: () => _perform(
                       controller.archived
                           ? controller.unarchive
-                          : controller.reload,
+                          : () =>
+                                controller.reload(reopen: controller.detached),
                     ),
-                    child: Text(controller.archived ? '恢复会话' : '同步重试'),
+                    child: Text(
+                      controller.archived
+                          ? '恢复会话'
+                          : controller.detached
+                          ? '重新打开会话'
+                          : '同步重试',
+                    ),
                   ),
                 ],
               ),

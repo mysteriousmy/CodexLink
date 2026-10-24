@@ -106,7 +106,7 @@ app.MapGet("/api/status", async (CodexRpc rpc, CancellationToken ct) =>
     if (rpc.Ready) account = await rpc.CallAsync("account/read", Json.Object(("refreshToken", false)), ct);
     return JsonResult(Json.Object(("gateway", "ready"), ("codex", rpc.State), ("codexVersion", rpc.Version),
         ("account", account), ("maxFileBytes", configuration.Value.MaxFileBytes), ("codexTransport", rpc.Shared ? "shared" : "stdio"),
-        ("taskNotifications", true), ("queuedMessages", true)));
+        ("taskNotifications", true), ("queuedMessages", true), ("threadActions", true)));
 });
 app.MapGet("/api/projects", async (ProjectCatalog projects, CancellationToken ct) => JsonResult(await projects.ListAsync(ct)));
 app.MapPost("/api/projects", async (CreateProjectRequest request, ProjectCatalog projects) => JsonResult(await projects.CreateAsync(request), 201));
@@ -120,7 +120,11 @@ app.MapPost("/api/threads", async (CreateThreadRequest request, SessionService s
     context.Response.Headers.Location = "/api/threads/" + result?["thread"].String("id");
     return JsonResult(result, 201);
 });
-app.MapGet("/api/threads/{id}", async (string id, bool? archived, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.SnapshotAsync(id, archived ?? false, ct)));
+app.MapGet("/api/threads/{id}", async (string id, bool? archived, bool? reopen, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.SnapshotAsync(id, archived ?? false, ct, reopen ?? false)));
+app.MapPost("/api/threads/{id}/archive", async (string id, ThreadActionRequest request, SessionService sessions, HttpContext context) =>
+    JsonResult(await sessions.ArchiveAsync(id, request, (string)context.Items["deviceId"]!)));
+app.MapPost("/api/threads/{id}/close", async (string id, ThreadActionRequest request, SessionService sessions, HttpContext context) =>
+    JsonResult(await sessions.CloseAsync(id, request, (string)context.Items["deviceId"]!)));
 app.MapPost("/api/threads/{id}/unarchive", async (string id, SessionService sessions) => JsonResult(await sessions.UnarchiveAsync(id)));
 app.MapGet("/api/threads/{id}/items", async (string id, string? cursor, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.ItemsAsync(id, cursor, ct)));
 app.MapGet("/api/threads/{id}/skills", async (string id, bool? refresh, SessionService sessions, ComposerCatalog catalog, CancellationToken ct) =>

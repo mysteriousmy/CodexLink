@@ -83,6 +83,8 @@ JSON 文件只保存小量、低频修改数据；单进程串行更新，写临
 | `GET /api/projects` / `POST /api/projects` | 分页读取/创建 Codex 原生项目 |
 | `GET /api/directories` / `POST /api/directories` | 鉴权后浏览主机一级目录/创建文件夹 |
 | `GET /api/threads` | 跨目录、来源、模型提供商的 `thread/list`；目录/标题/归档筛选与游标分页 |
+| `POST /api/threads/{id}/archive` | 原生归档，稳定 requestId 回执 |
+| `POST /api/threads/{id}/close` | 取消订阅、等待原生卸载，稳定 requestId 回执 |
 | `POST /api/threads/{id}/unarchive` | 原生归档恢复 |
 | `GET /api/threads/{id}/skills` | `skills/list`，按线程实际 cwd |
 | `GET /api/threads/{id}/file-search` | `fuzzyFileSearch`，根限定线程 cwd |
@@ -214,3 +216,12 @@ Codex CLI 0.163.0 的 `agentMessage.questions` 使用 `title/options`。v0.1.5 �
 队列由 Codex `thread/queue/*` 保存和调度，网关不复制会话库。`clientUserMessageId` 使用 `codexlink-queue-` 前缀标记本网关创建的输入，并记录正文是否存在，使用户原文与附件/文件引用信封可无损区分；最多 16 条，每条正文不超过 200,000 字符，附件沿用原有限制。`thread/queue/changed` 经现有事件流传递，客户端合并短时间内的通知后只刷新队列，重连时读取快照。
 
 立即发送的 delete 和 Codex 自动消费在原生队列中互斥，删除返回 false 时绝不再 steer。delete 与 steer 是两个原生 RPC，进程故障之间不承诺原子性：明确拒绝才重新排队，未知结果保留正文和稳定操作 ID；客户端将待核对动作保存在当前服务与会话的本地状态中，查询 `/api/operations` 或历史用户消息 `clientId`，不自动重发。操作回执仍采用有界的 30 分钟网关内存记录，跨网关重启可能不可恢复，界面保留人工核对后取回副本的入口。提问回答继续走独立的原生回答/结构化 steer 路径，不加入普通补充队列，也不清除聊天草稿。
+
+
+## 会话列表操作（v0.1.7）
+
+ThreadListTile 在原生触摸右滑、Web 鼠标悬停和键盘聚焦时展开右侧按钮。active 状态使用明暗主题对应的青绿色与“运行中”文本；关闭按钮仅在运行且没有等待卸载时出现。水平方向手势不接管纵向列表滚动；操作期间禁用行内重复提交。
+
+归档调用 `thread/archive`，恢复调用 `thread/unarchive`；关闭调用 `thread/unsubscribe`，不通过临时归档模拟卸载。`unsubscribed` 只代表取消本网关订阅，返回 closing；`notLoaded` 或真实 `thread/closed` 才表示卸载完成。`notSubscribed` 返回 409，保留真实状态。原生实例仍活跃、存在其他订阅或未达到原生卸载延迟时显示等待状态。关闭不自动中断轮次或暂停 Goal，也不终止共享 daemon。原生延迟由 Codex 配置决定，网关不擅自修改。
+
+关闭成功或结果未知后，网关在当前进程内阻止普通快照刷新触发 resume；显式打开使用 `GET /api/threads/{id}?reopen=true`，保留原有工作目录、模型、权限和 Goal。该标志是有界会话缓存的一部分，不保证跨网关重启持久保存。客户端切换只读状态并保留草稿、附件和引用。列表事件使用逐字段版本合并，较早 HTTP 列表不能覆盖较新的归档或状态事件；重连重同步同时读取列表。操作使用现有的设备隔离、30 分钟/1024 项回执，结果不明确时只查询回执，不自动重发。

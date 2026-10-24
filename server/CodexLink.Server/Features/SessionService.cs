@@ -12,6 +12,10 @@ public sealed partial class SessionService
         public ProjectConfig Project { get; } = project;
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public bool Loaded { get; set; }
+        public bool Closed { get; set; }
+        public bool Archived { get; set; }
+        public bool CloseRequested { get; set; }
+        public long CloseEventVersion { get; set; }
         public bool Materialized { get; set; } = true;
         public long TurnEventVersion { get; set; }
         public string? ActiveTurn { get; set; }
@@ -30,13 +34,14 @@ public sealed partial class SessionService
     private readonly ComposerCatalog _catalog;
     private readonly MediaStore _media;
     private readonly ProjectCatalog _projects;
+    private readonly Realtime.EventHub _events;
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _projectGates = new();
 
-    public SessionService(Configuration config, CodexRpc rpc, AttachmentStore attachments, Operations operations, ComposerCatalog catalog, MediaStore media, ProjectCatalog projects)
+    public SessionService(Configuration config, CodexRpc rpc, AttachmentStore attachments, Operations operations, ComposerCatalog catalog, MediaStore media, ProjectCatalog projects, Realtime.EventHub events)
     {
         _config = config; _rpc = rpc; _attachments = attachments; _operations = operations; _catalog = catalog; _media = media;
-        _projects = projects;
+        _projects = projects; _events = events;
         rpc.Notification += OnNotification;
     }
 
@@ -52,6 +57,14 @@ public sealed partial class SessionService
         {
             case "turn/started": session.ActiveTurn = parameters?["turn"].String("id"); session.TurnEventVersion++; break;
             case "turn/completed": session.ActiveTurn = null; session.TurnEventVersion++; break;
+            case "thread/status/changed":
+                if (parameters?["status"].String("type") is "idle" or "notLoaded")
+                {
+                    session.ActiveTurn = null; session.TurnEventVersion++;
+                    if (parameters?["status"].String("type") == "notLoaded")
+                    { session.Loaded = false; session.CloseRequested = false; }
+                }
+                break;
             case "item/started": if (parameters?["item"].String("type") == "userMessage") session.Materialized = true; break;
             case "thread/tokenUsage/updated": session.Usage = parameters?["tokenUsage"].Copy(); break;
             case "thread/goal/updated": session.Goal = parameters?["goal"].Copy(); break;
@@ -62,18 +75,38 @@ public sealed partial class SessionService
                 parameters!["permissions"] = session.Permissions.Copy();
                 session.SettingsChanged?.TrySetResult(session.Permissions.Copy());
                 break;
-            case "thread/closed": session.Loaded = false; break;
+            case "thread/closed":
+                session.Loaded = false; session.ActiveTurn = null; session.TurnEventVersion++;
+                session.Closed = true; session.CloseRequested = false;
+                session.CloseEventVersion++;
+                break;
+            case "thread/archived":
+                session.Archived = true; session.Closed = true; session.Loaded = false;
+                session.CloseRequested = false; session.CloseEventVersion++;
+                session.ActiveTurn = null; session.TurnEventVersion++;
+                break;
+            case "thread/unarchived": session.Archived = false; break;
         }
     }
 
-    public Task<JsonNode?> ListAsync(string? projectId, string? cursor, string? search, bool archived, CancellationToken cancellationToken)
+    public async Task<JsonNode?> ListAsync(string? projectId, string? cursor, string? search, bool archived, CancellationToken cancellationToken)
     {
         var parameters = Json.Object(("cursor", cursor), ("limit", 30), ("sortKey", "updated_at"),
             ("modelProviders", new JsonArray()), ("archived", archived),
             ("sourceKinds", new JsonArray("cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown")));
         if (!string.IsNullOrEmpty(projectId)) parameters["projectId"] = projectId;
         if (!string.IsNullOrWhiteSpace(search)) parameters["searchTerm"] = search.Trim();
-        return _rpc.CallAsync("thread/list", parameters, cancellationToken);
+        var result = await _rpc.CallAsync("thread/list", parameters, cancellationToken);
+        if (result?["data"] is JsonArray rows)
+            foreach (var row in rows)
+                if (row.String("id") is { } id && _sessions.TryGetValue(id, out var state))
+                {
+                    if (row?["status"].String("type") == "notLoaded")
+                    { state.CloseRequested = false; state.Loaded = false; state.ActiveTurn = null; }
+                    row!["closePending"] = state.CloseRequested;
+                    row["closedByClient"] = state.Closed;
+                }
+        return result;
     }
 
     public async Task<JsonNode?> CreateAsync(CreateThreadRequest request)
@@ -133,6 +166,8 @@ public sealed partial class SessionService
 
     private async Task ResumeInsideLockAsync(string id, SessionState session)
     {
+        if (session.Archived) throw new ApiException(409, "thread_archived", "会话已归档，请先恢复会话。");
+        if (session.Closed) throw new ApiException(409, "thread_closed", "会话已关闭，请重新打开后继续。");
         if (session.Loaded) return;
         // Rejoin the exact thread without replacing its model, working directory,
         // permissions or goal. Another client may already be executing it.
@@ -150,19 +185,23 @@ public sealed partial class SessionService
     private void EnsureProjectAvailable(string id, SessionState session)
     {
         if (_sessions.Any(s => s.Key != id && s.Value.Project.Id == session.Project.Id &&
+            !s.Value.Archived && !(s.Value.Closed && !s.Value.CloseRequested) &&
             (s.Value.ActiveTurn is not null || s.Value.Goal.String("status") == "active")))
             throw new ApiException(409, "project_busy", "同一项目另有任务或目标正在执行，请先完成或暂停它。");
     }
 
-    public async Task<JsonObject> SnapshotAsync(string id, bool archived, CancellationToken cancellationToken)
+    public async Task<JsonObject> SnapshotAsync(string id, bool archived, CancellationToken cancellationToken, bool reopen = false)
     {
         await AuthorizeAsync(id, cancellationToken);
         var session = _sessions[id];
         await session.Gate.WaitAsync(cancellationToken);
         try
         {
-            session.ControlReason = archived ? "这是已归档会话。恢复后可继续对话或设置 Goal。" : null;
-            if (!archived)
+            archived |= session.Archived;
+            if (reopen && !archived) { session.Closed = false; session.CloseRequested = false; }
+            session.ControlReason = archived ? "这是已归档会话。恢复后可继续对话或设置 Goal。"
+                : session.Closed ? "此会话已关闭或正在等待卸载，重新打开后可继续。" : null;
+            if (!archived && !session.Closed)
             {
                 try { await ResumeInsideLockAsync(id, session); }
                 catch (ApiException e) when (e.Code == "codex_rpc_error" && e.Message.Contains("active writer", StringComparison.OrdinalIgnoreCase))
@@ -183,7 +222,7 @@ public sealed partial class SessionService
             return Json.Object(("thread", metadata?["thread"].Copy()), ("activeTurnId", session.ActiveTurn),
                 ("usage", session.Usage.Copy()), ("goal", session.Goal.Copy()),
                 ("permissions", session.Permissions.Copy()),
-                ("canControl", session.ControlReason is null), ("controlReason", session.ControlReason), ("archived", archived),
+                ("canControl", session.ControlReason is null), ("controlReason", session.ControlReason), ("archived", archived), ("closed", session.Closed),
                 ("approvals", new JsonArray(_rpc.Approvals.Where(a => a?["params"].String("threadId") == id).Select(a => a.Copy()).ToArray())),
                 ("attachments", JsonSerializer.SerializeToNode(_attachments.ForThread(id), JsonContext.Default.AttachmentRecordArray)));
         }
@@ -236,9 +275,19 @@ public sealed partial class SessionService
     public async Task<JsonNode?> UnarchiveAsync(string id)
     {
         await AuthorizeAsync(id);
-        var result = await _rpc.CallAsync("thread/unarchive", Json.Object(("threadId", id)));
-        _sessions[id].ControlReason = null;
-        return result;
+        var session = _sessions[id];
+        await session.Gate.WaitAsync();
+        try
+        {
+            var result = await _rpc.CallAsync("thread/unarchive", Json.Object(("threadId", id)));
+            session.Archived = false;
+            session.Closed = false;
+            session.CloseRequested = false;
+            session.ControlReason = null;
+            _events.Publish("thread/lifecycle/changed", Json.Object(("threadId", id), ("state", "unarchived")));
+            return result;
+        }
+        finally { session.Gate.Release(); }
     }
 
     public async Task<JsonNode?> ItemsAsync(string id, string? cursor, CancellationToken cancellationToken)
