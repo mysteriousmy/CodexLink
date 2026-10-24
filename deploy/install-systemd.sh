@@ -117,6 +117,8 @@ Environment="PATH=$ACCOUNT_HOME/.local/bin:$ACCOUNT_HOME/.npm-global/bin:/usr/lo
 ExecStart=$PREFIX/CodexLink.Server
 Restart=on-failure
 RestartSec=3
+# Preserve the independently managed shared Codex daemon.
+KillMode=process
 TimeoutStopSec=15
 UMask=0077
 

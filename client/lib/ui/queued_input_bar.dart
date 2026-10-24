@@ -32,9 +32,10 @@ class QueuedInputBar extends StatelessWidget {
             key: ValueKey('accepted-steer-${input['id']}'),
             icon: Icons.hourglass_top_rounded,
             title: controller.activeTurnId == input['turnId']
-                ? '补充已提交 · Codex 自动择机处理'
-                : '补充已提交 · 等待同步确认',
+                ? '已提交给 Codex · 等待处理'
+                : '已提交给 Codex · 等待同步确认',
             subtitle: input['text'] as String? ?? '',
+            onTap: () => _showSubmitted(context),
             actions: [
               IconButton(
                 tooltip: '同步补充指令状态',
@@ -121,7 +122,7 @@ class QueuedInputBar extends StatelessWidget {
             ]
           : [
               IconButton(
-                tooltip: '立即发送',
+                tooltip: controller.activeTurnId == null ? '立即发送' : '立即 steer',
                 onPressed: enabled
                     ? () => controller.actOnQueuedInput(input, sendNow: true)
                     : null,
@@ -137,6 +138,22 @@ class QueuedInputBar extends StatelessWidget {
             ],
     );
   }
+
+  Future<void> _showSubmitted(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('已提交给 Codex'),
+      content: const Text(
+        '这条补充已经交给 Codex，等待处理或同步确认。已提交的内容无法撤回，也无需再次发送。右侧按钮只刷新处理状态。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _restoreCopy(BuildContext context) async {
     final confirmed = await showDialog<bool>(

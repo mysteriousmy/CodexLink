@@ -105,8 +105,14 @@ app.MapGet("/api/status", async (CodexRpc rpc, CancellationToken ct) =>
     JsonNode? account = null;
     if (rpc.Ready) account = await rpc.CallAsync("account/read", Json.Object(("refreshToken", false)), ct);
     return JsonResult(Json.Object(("gateway", "ready"), ("codex", rpc.State), ("codexVersion", rpc.Version),
-        ("account", account), ("maxFileBytes", configuration.Value.MaxFileBytes), ("codexTransport", rpc.Shared ? "shared" : "stdio"),
+        ("account", account), ("maxFileBytes", configuration.Value.MaxFileBytes), ("codexTransport", rpc.Ready ? rpc.Shared ? "shared" : "stdio" : null),
+        ("onDemandRuntime", true), ("codexError", rpc.StartupError),
         ("taskNotifications", true), ("queuedMessages", true), ("automaticInput", true), ("threadActions", true)));
+});
+app.MapPost("/api/runtime/start", async (CodexRpc rpc, CancellationToken ct) =>
+{
+    await rpc.EnsureReadyAsync(ct);
+    return JsonResult(Json.Object(("codex", rpc.State), ("codexTransport", rpc.Shared ? "shared" : "stdio")));
 });
 app.MapGet("/api/projects", async (ProjectCatalog projects, CancellationToken ct) => JsonResult(await projects.ListAsync(ct)));
 app.MapPost("/api/projects", async (CreateProjectRequest request, ProjectCatalog projects) => JsonResult(await projects.CreateAsync(request), 201));

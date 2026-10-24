@@ -5,7 +5,7 @@ on:
       tag:
         description: Published release tag to verify
         required: true
-        default: v0.1.7
+        default: v0.1.8
 permissions:
   # GitHub requires write access to see an unpublished draft release.
   # This manually dispatched workflow only downloads and tests its assets.
@@ -65,4 +65,29 @@ jobs:
             $env:CODEXLINK_TEST_COMMAND = $binary
             python -m unittest discover -s source/tests -v
             if ($LASTEXITCODE -ne 0) { throw 'Gateway contract tests failed' }
+          }
+      - name: Verify real Codex shared-daemon cold start and lifetime
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arch = if ($env:ASSET_SUFFIX -match 'arm64') { 'aarch64' } else { 'x86_64' }
+          $target = if ($IsWindows) { "$arch-pc-windows-msvc.exe.zip" } else { "$arch-unknown-linux-musl.tar.gz" }
+          $assetName = "codex-$target"
+          $release = gh api repos/openai/codex/releases/tags/rust-v0.164.0 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Official Codex release lookup failed' }
+          $asset = $release.assets | Where-Object { $_.name -eq $assetName }
+          if (!$asset -or !$asset.digest.StartsWith('sha256:')) { throw 'Official Codex asset/digest missing' }
+          Invoke-WebRequest $asset.browser_download_url -OutFile $assetName
+          if ((Get-FileHash $assetName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $asset.digest.Substring(7)) { throw 'Official Codex checksum mismatch' }
+          New-Item -ItemType Directory codex-cli | Out-Null
+          if ($IsWindows) { Expand-Archive $assetName codex-cli }
+          else { tar -xzf $assetName -C codex-cli; if ($LASTEXITCODE -ne 0) { throw 'Codex extraction failed' } }
+          $cliName = if ($IsWindows) { "codex-$arch-pc-windows-msvc.exe" } else { "codex-$arch-unknown-linux-musl" }
+          $codex = (Get-ChildItem codex-cli -Recurse -File -Filter $cliName | Select-Object -First 1).FullName
+          $name = if ($IsWindows) { 'CodexLink.Server.exe' } else { 'CodexLink.Server' }
+          $binary = (Get-ChildItem package -Recurse -File -Filter $name | Select-Object -First 1).FullName
+          if (!$codex -or !$binary) { throw 'Smoke executable missing' }
+          if ($IsWindows) { & ./source/scripts/smoke-daemon-windows.ps1 -Gateway $binary -Codex $codex }
+          else {
+            python source/scripts/smoke-daemon.py $binary $codex
+            if ($LASTEXITCODE -ne 0) { throw 'Real daemon smoke failed' }
           }

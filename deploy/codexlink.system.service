@@ -18,7 +18,8 @@ StateDirectoryMode=0700
 Restart=always
 RestartSec=3
 TimeoutStopSec=20
-KillMode=control-group
+# The shared Codex daemon must outlive gateway restarts.
+KillMode=process
 UMask=0077
 SyslogIdentifier=codexlink
 

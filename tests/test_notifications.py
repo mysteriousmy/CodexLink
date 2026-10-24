@@ -55,7 +55,8 @@ class NotificationTests(GatewayFixture):
         self.proc.terminate()
         self.proc.wait(5)
         self.proc = subprocess.Popen(COMMAND, env={**os.environ, "CODEXLINK_DATA": str(self.data)}, stdout=self.log, stderr=subprocess.STDOUT)
-        self.until(lambda: self.request("GET", "/api/status")[1].get("codex") == "ready")
+        self.until(lambda: self.request("GET", "/api/status")[1].get("gateway") == "ready")
+        self.assertEqual(self.request("POST", "/api/runtime/start")[0], 200)
 
     def test_notification_baseline_live_delivery_and_replay_are_private(self):
         baseline = self.batch()

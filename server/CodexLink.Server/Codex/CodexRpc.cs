@@ -13,82 +13,139 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
     private readonly Dictionary<string, int> _textOffsets = new();
     private readonly SemaphoreSlim _write = new(1, 1);
     private CodexTransport? _transport;
+    private readonly object _startupGate = new();
+    private readonly SemaphoreSlim _demand = new(0, 1);
+    private TaskCompletionSource<bool> _startup = NewStartup();
+    private bool _requested;
+    public string? StartupError { get; private set; }
+    private static TaskCompletionSource<bool> NewStartup() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool Shared { get; private set; }
     private long _id;
     private volatile bool _ready;
     public bool Ready => _ready;
-    public string State { get; private set; } = "starting";
+    public string State { get; private set; } = "idle";
     public string? Version { get; private set; }
     public event Action<string, JsonNode?>? Notification;
     public JsonArray Approvals => new(_approvals.Values.Select(x => (JsonNode)x.DeepClone()).ToArray());
 
+    public async Task EnsureReadyAsync(CancellationToken cancellationToken = default)
+    {
+        Task<bool> startup;
+        lock (_startupGate)
+        {
+            if (_ready) return;
+            if (!_requested)
+            {
+                _requested = true;
+                StartupError = null;
+                State = "starting";
+                _startup = NewStartup();
+                _demand.Release();
+            }
+            startup = _startup.Task;
+        }
+        // A disconnected phone cancels only its wait, never shared startup.
+        if (!await startup.WaitAsync(cancellationToken))
+            throw new ApiException(503, "codex_unavailable", StartupError ?? "共享 Codex 尚未就绪，请重试。");
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var shutdown = lifetime.ApplicationStopping.Register(() => _transport?.Stop());
-        // Choose once. A lost shared connection must reconnect to the same owner,
-        // not silently start a competing private writer.
-        var socketPath = await CodexTransport.DiscoverSocketAsync(configuration.Value, stoppingToken);
-        var failures = 0;
-        while (!stoppingToken.IsCancellationRequested && !lifetime.ApplicationStopping.IsCancellationRequested && failures < 5)
+        try
         {
-            CodexTransport? transport = null;
-            Task? reader = null;
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                State = "starting";
-                transport = await CodexTransport.OpenAsync(configuration.Value, socketPath, stoppingToken);
-                _transport = transport;
-                Shared = transport.Shared;
-                reader = ReadAsync(transport, stoppingToken);
-                var result = await CallCoreAsync("initialize", Json.Object(
-                    ("clientInfo", Json.Object(("name", "codexlink"), ("version", "0.1.7"))),
-                    ("capabilities", Json.Object(("experimentalApi", true)))), stoppingToken);
-                Version = result.String("userAgent");
-                await WriteAsync(Json.Object(("method", "initialized")), stoppingToken);
-                _ready = true;
-                State = "ready";
-                events.Publish("runtime/ready", Json.Object(("version", Version)));
-                await reader;
-                throw new IOException("Codex exited.");
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception exception)
-            {
-                failures++;
-                State = "unavailable";
-                logger.LogWarning("Codex runtime stopped ({Kind}), restart attempt {Attempt}/5", exception.GetType().Name, failures);
-            }
-            finally
-            {
-                _ready = false;
-                _transport = null;
-                foreach (var pending in _pending.Values) pending.TrySetException(new ApiException(503, "codex_disconnected", "Codex 连接已断开，操作结果可能未知。"));
-                _pending.Clear();
-                _approvals.Clear();
-                _textOffsets.Clear();
-                Notification?.Invoke("runtime/stopped", null);
-                events.Publish("runtime/stopped", new JsonObject());
-                if (transport is not null)
+                await _demand.WaitAsync(stoppingToken);
+                var failures = 0;
+                var connected = false;
+                while (!stoppingToken.IsCancellationRequested && !lifetime.ApplicationStopping.IsCancellationRequested)
                 {
-                    transport.Stop();
-                    if (reader is not null)
+                    CodexTransport? transport = null;
+                    Task? reader = null;
+                    try
                     {
-                        try { await reader; }
-                        catch (Exception e) when (e is IOException or OperationCanceledException or System.Text.Json.JsonException or WebSocketException) { }
+                        State = "starting";
+                        // Re-discover after a daemon restart; never fall back to
+                        // a private writer when shared startup is unavailable.
+                        var socketPath = await CodexTransport.DiscoverSocketAsync(configuration.Value, stoppingToken);
+                        transport = await CodexTransport.OpenAsync(configuration.Value, socketPath, stoppingToken);
+                        _transport = transport;
+                        Shared = transport.Shared;
+                        reader = ReadAsync(transport, stoppingToken);
+                        var result = await CallCoreAsync("initialize", Json.Object(
+                            ("clientInfo", Json.Object(("name", "codexlink"), ("version", "0.1.8"))),
+                            ("capabilities", Json.Object(("experimentalApi", true)))), stoppingToken);
+                        Version = result.String("userAgent");
+                        await WriteAsync(Json.Object(("method", "initialized")), stoppingToken);
+                        lock (_startupGate)
+                        {
+                            _ready = true;
+                            State = "ready";
+                            StartupError = null;
+                            _startup.TrySetResult(true);
+                        }
+                        connected = true;
+                        failures = 0;
+                        events.Publish("runtime/ready", Json.Object(("version", Version)));
+                        await reader;
+                        throw new IOException("Codex exited.");
                     }
-                    await transport.DisposeAsync();
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                    catch (Exception exception)
+                    {
+                        failures++;
+                        StartupError = exception is ApiException ? exception.Message :
+                            "共享 Codex 连接或启动失败，请检查主机上的 CLI 版本、运行账号和共享服务后重试。";
+                        logger.LogWarning("Codex runtime unavailable ({Kind}), attempt {Attempt}/5", exception.GetType().Name, failures);
+                    }
+                    finally
+                    {
+                        lock (_startupGate)
+                        {
+                            _ready = false;
+                            State = "unavailable";
+                            if (_startup.Task.IsCompleted) _startup = NewStartup();
+                        }
+                        _transport = null;
+                        foreach (var pending in _pending.Values) pending.TrySetException(new ApiException(503, "codex_disconnected", "Codex 连接已断开，操作结果可能未知。"));
+                        _pending.Clear();
+                        _approvals.Clear();
+                        _textOffsets.Clear();
+                        Notification?.Invoke("runtime/stopped", null);
+                        events.Publish("runtime/stopped", new JsonObject());
+                        if (transport is not null)
+                        {
+                            transport.Stop();
+                            if (reader is not null)
+                            {
+                                try { await reader; }
+                                catch (Exception e) when (e is IOException or OperationCanceledException or System.Text.Json.JsonException or WebSocketException) { }
+                            }
+                            await transport.DisposeAsync();
+                        }
+                    }
+                    if (!connected || failures >= 5) break;
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, failures))), stoppingToken);
+                }
+                lock (_startupGate)
+                {
+                    _requested = false;
+                    _startup.TrySetResult(false);
                 }
             }
-            if (failures < 5)
-                try { await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, failures))), stoppingToken); }
-                catch (OperationCanceledException) { break; }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+        finally
+        {
+            lock (_startupGate) _startup.TrySetResult(false);
         }
     }
 
-    public Task<JsonNode?> CallAsync(string method, JsonNode? parameters, CancellationToken cancellationToken = default)
+    public async Task<JsonNode?> CallAsync(string method, JsonNode? parameters, CancellationToken cancellationToken = default)
     {
-        if (!Ready) throw new ApiException(503, "codex_unavailable", "Codex 尚未就绪，请检查主机状态。");
-        return CallCoreAsync(method, parameters, cancellationToken);
+        await EnsureReadyAsync(cancellationToken);
+        return await CallCoreAsync(method, parameters, cancellationToken);
     }
 
     private async Task<JsonNode?> CallCoreAsync(string method, JsonNode? parameters, CancellationToken cancellationToken)

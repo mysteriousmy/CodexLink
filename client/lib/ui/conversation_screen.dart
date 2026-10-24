@@ -1023,7 +1023,7 @@ class _ComposerState extends State<Composer> {
                       ? '描述目标，发送后开始执行…'
                       : controller.activeTurnId == null
                       ? '描述任务 · / 指令 · @ 文件'
-                      : '补充当前任务，Codex 会自动择机处理…',
+                      : '补充下一步，可立即 steer 或撤回…',
                   filled: false,
                   counterText: '',
                   contentPadding: const EdgeInsets.symmetric(

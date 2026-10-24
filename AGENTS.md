@@ -7,7 +7,7 @@
 - 项目用于个人自用，优先解决手机外出连接电脑不稳定、断线后状态丢失的问题。
 - 前后端放在同一个仓库。客户端使用 Flutter，覆盖 Android / iOS App 与 Web；服务端使用 .NET 10。
 - 正式服务端分发覆盖 Linux x64/ARM64、Windows x64/ARM64；Linux 使用 musl 完全静态链接并移除 ICU。保留 macOS 可移植性，不提前实现所有平台的后台服务安装器。
-- Agent 执行底座使用 `codex app-server`。优先通过官方 Unix WebSocket 接入已运行的本机共享服务；没有共享服务时才创建 stdio 子进程。自己的网关负责 HTTP/WebSocket。
+- Agent 执行底座使用 `codex app-server`。网关启动时保持待机，首次客户端使用时通过官方 Unix WebSocket 接入共享服务；未运行时使用 `codex app-server daemon start` 按需启动。默认不得回退为私有 stdio；只有显式关闭共享或自定义 Codex 参数时使用自有子进程。自己的网关负责 HTTP/WebSocket。
 - 会话列表默认覆盖本机 Codex 的所有工作目录、来源和模型提供商，支持分页与归档查看。点击会话按原 ID 恢复/订阅，同步活跃轮次后继续对话或 steer，不能复制成新会话。
 - 连接共享服务不得重启/结束用户的 Codex daemon；恢复已有会话不得擅自覆盖其工作目录、模型、权限或 Goal。
 - 不依赖 ChatGPT 桌面客户端，不使用 CDP、剪贴板或模拟点击驱动任务。

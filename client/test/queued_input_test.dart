@@ -34,6 +34,77 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets(
+    'default_followup_exposes_send_now_and_withdraw_before_submission',
+    (t) async {
+      final posts = <http.Request>[];
+      var queue = <JsonMap>[];
+      final a =
+          app.AppController(
+              api: ApiClient(
+                client: MockClient((r) async {
+                  if (r.method == 'GET') return json({'data': queue});
+                  posts.add(r);
+                  if (r.url.path.endsWith('/input')) {
+                    queue = [
+                      queued()
+                        ..['attachments'] = []
+                        ..['references'] = [],
+                    ];
+                    return json({'submission': queue.single});
+                  }
+                  if (r.url.path.endsWith('/send')) {
+                    queue = [];
+                    return json({'state': 'sent'});
+                  }
+                  throw StateError('Unexpected request: ${r.url.path}');
+                }),
+              ),
+            )
+            ..authenticated = true
+            ..connection = app.ConnectionState.connected;
+      addTearDown(a.dispose);
+      final c = a.conversation
+        ..threadId = 't'
+        ..activeTurnId = 'running'
+        ..queueSupported = true
+        ..automaticInputSupported = true;
+      await t.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: c,
+              builder: (context, _) => Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  QueuedInputBar(controller: c),
+                  Composer(appController: a),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await t.enterText(find.byType(TextField), '默认先排队');
+      await t.pump();
+      await t.tap(find.text('补充'));
+      await t.pumpAndSettle();
+      expect(posts.single.url.path, '/api/threads/t/input');
+      expect(c.acceptedSteers, isEmpty);
+      expect(find.text('待发送 · 本轮结束后发送'), findsOneWidget);
+      expect(find.byTooltip('立即 steer').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('撤回').hitTestable(), findsOneWidget);
+      await t.tap(find.byTooltip('立即 steer'));
+      await t.pumpAndSettle();
+      expect(posts.last.url.path, '/api/threads/t/queue/queued-1/send');
+      expect(jsonDecode(posts.last.body)['expectedTurnId'], 'running');
+      expect(posts, hasLength(2));
+      expect(c.queuedInputs, isEmpty);
+      expect(find.byTooltip('撤回'), findsNothing);
+      expect(t.takeException(), isNull);
+    },
+  );
+
   test(
     'automatic_send_uses_runtime_selection_and_tracks_native_consumption',
     () async {

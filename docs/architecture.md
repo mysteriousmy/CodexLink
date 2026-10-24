@@ -26,14 +26,14 @@ flowchart LR
 
 - **客户端**：展示数据、收集输入、管理连接状态；一个 Flutter 工程共享 App 和 Web。
 - **网关**：单个 ASP.NET Core 进程，负责设备访问、输入边界、Codex 生命周期、事件分发和少量配置。
-- **Codex**：优先连接官方共享 app-server；不存在时创建自有 stdio 进程。共享服务由原本的主机客户端管理，网关绝不终止它。
+- **Codex**：按需连接官方共享 app-server；未运行时使用 daemon start 启动。默认失败不回退私有 stdio；显式私有模式或自定义启动参数仍支持自有子进程。网关绝不终止共享服务。
 - **外网入口**：使用已有的 VPN/私网或受控 HTTPS 反向代理，不在产品里实现 NAT 穿透。
 
 Flutter Web 生产构建和 API 使用同一源，Debug/Release 静态资源在 MSBuild 中生成并嵌入可执行文件，运行时流式提供，无旁置 wwwroot 或解包。TLS 可以在 loopback 前的私网入口/反向代理终止；部署方式与业务协议解耦。
 
 ## 3. Codex 接入与进程生命周期
 
-默认读取 `codex app-server daemon version`，连接其 Unix socket 的 WebSocket `/rpc`；不存在共享服务时使用 `codex app-server --listen stdio://`。启动后完成 `initialize` 请求，确认成功后发送 `initialized` 通知。固定验证基线为共享服务 `0.157.1` 与独立 CLI `0.163.0`，升级时检查实际生成的 schema，只适配产品用到的部分。
+默认启动为 idle，首次业务调用或 `/api/runtime/start` 共用一次启动任务。先读取 `codex app-server daemon version`（当前 CLI 未运行时可能返回非零），必要时调用幂等的 `codex app-server daemon start`，连接其 Unix socket 的 WebSocket `/rpc`。不执行 bootstrap/restart，不安装 Codex 自启动。请求断开只取消等待；共享 daemon 不随客户端请求取消或网关退出终止。Linux 单元通过 `KillMode=process` 避免 cgroup 清理误杀共享服务；Windows 沿用官方非提升/可脱离作业的进程约束。显式私有模式使用 `codex app-server --listen stdio://`。启动后完成 `initialize` 请求，确认成功后发送 `initialized` 通知。固定验证基线为共享服务 `0.157.1` 与独立 CLI `0.163.0`，升级时检查实际生成的 schema，只适配产品用到的部分。
 
 协议层需要处理三种消息：带 ID 的响应、无 ID 的通知、Codex 主动发来的带 ID 请求。最后一种包括审批和用户补充输入，不能误当作通知丢弃。
 
@@ -220,8 +220,14 @@ Codex CLI 0.163.0 的 `agentMessage.questions` 使用 `title/options`。v0.1.5 �
 
 ## 会话列表操作（v0.1.7）
 
-ThreadListTile 在原生触摸右滑、Web 鼠标悬停和键盘聚焦时展开右侧按钮。active 状态使用明暗主题对应的青绿色与“运行中”文本；关闭按钮仅在运行且没有等待卸载时出现。水平方向手势不接管纵向列表滚动；操作期间禁用行内重复提交。
+v0.1.8 的 ThreadListTile 在 App 长按时弹出操作对话框，取消或返回不打开会话；原生横滑不触发操作。弹窗随运行/忙碌/归档状态更新，并在操作前再次核对。Web 保留原有鼠标悬停、键盘聚焦和触摸横滑展开右侧按钮。active 状态使用明暗主题对应的青绿色与“运行中”文本；关闭按钮仅在运行且没有等待卸载时出现。水平方向手势不接管纵向列表滚动；操作期间禁用行内重复提交。
 
 归档调用 `thread/archive`，恢复调用 `thread/unarchive`；关闭调用 `thread/unsubscribe`，不通过临时归档模拟卸载。`unsubscribed` 只代表取消本网关订阅，返回 closing；`notLoaded` 或真实 `thread/closed` 才表示卸载完成。`notSubscribed` 返回 409，保留真实状态。原生实例仍活跃、存在其他订阅或未达到原生卸载延迟时显示等待状态。关闭不自动中断轮次或暂停 Goal，也不终止共享 daemon。原生延迟由 Codex 配置决定，网关不擅自修改。
 
 关闭成功或结果未知后，网关在当前进程内阻止普通快照刷新触发 resume；显式打开使用 `GET /api/threads/{id}?reopen=true`，保留原有工作目录、模型、权限和 Goal。该标志是有界会话缓存的一部分，不保证跨网关重启持久保存。客户端切换只读状态并保留草稿、附件和引用。列表事件使用逐字段版本合并，较早 HTTP 列表不能覆盖较新的归档或状态事件；重连重同步同时读取列表。操作使用现有的设备隔离、30 分钟/1024 项回执，结果不明确时只查询回执，不自动重发。
+
+## 按需运行与默认补充队列（v0.1.8）
+
+GET /api/status 只观察运行状态，返回 idle/starting/ready/unavailable、onDemandRuntime 和 codexError；POST /api/runtime/start 鉴权后显式等待启动，返回 ready/shared。初次启动失败立即结束并允许用户重试；已连接实例断开后有限次重连，每次重新发现官方 socket。失败绝不隐式启动私有写入者。
+
+POST /api/threads/{id}/input 在会话锁内读取真实轮次：空闲时 turn/start，活动时 thread/queue/add。默认补充与显式排队共用原生持久队列、16 条容量、附件/引用投影、去重及回执；本轮结束后 Codex 自动调度。立即 steer 和撤回仍使用现有队列动作，未知结果不重发。已接收的旧版 steer 仅显示已提交及同步状态，不冒充可撤回。

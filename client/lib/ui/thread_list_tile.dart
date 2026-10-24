@@ -45,13 +45,16 @@ class _ThreadListTileState extends State<ThreadListTile>
     vsync: this,
     duration: const Duration(milliseconds: 180),
   );
+  final _dialogRevision = ValueNotifier(0);
+  bool _dialogOpen = false;
   bool _hovered = false;
   bool _focused = false;
   bool _dragging = false;
   double get _actionWidth => kIsWeb ? 44 : 64;
   double get _actionsWidth =>
       _actionWidth * (widget.running && !widget.closing ? 2 : 1);
-  bool get _visible => widget.revealed || _hovered || _focused || widget.busy;
+  bool get _visible =>
+      kIsWeb && (widget.revealed || _hovered || _focused || widget.busy);
 
   void _animate() =>
       _animation.animateTo(_visible ? 1 : 0, curve: Curves.easeOutCubic);
@@ -66,6 +69,72 @@ class _ThreadListTileState extends State<ThreadListTile>
   void didUpdateWidget(covariant ThreadListTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_dragging) _animate();
+    if (_dialogOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _dialogRevision.value++;
+      });
+    }
+  }
+
+  Future<void> _showActions() async {
+    if (widget.busy || _dialogOpen) return;
+    _dialogOpen = true;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => ValueListenableBuilder(
+        valueListenable: _dialogRevision,
+        builder: (context, _, _) => AlertDialog(
+          title: Text(
+            widget.title,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(
+                  widget.archived
+                      ? Icons.unarchive_outlined
+                      : Icons.archive_outlined,
+                ),
+                title: Text(widget.archived ? '恢复会话' : '归档会话'),
+                enabled: !widget.busy && widget.onArchive != null,
+                onTap: !widget.busy && widget.onArchive != null
+                    ? () => Navigator.pop(
+                        dialogContext,
+                        widget.archived ? 'restore' : 'archive',
+                      )
+                    : null,
+              ),
+              if (widget.running && !widget.closing)
+                ListTile(
+                  leading: const Icon(Icons.close_rounded),
+                  title: const Text('关闭会话'),
+                  enabled: !widget.busy && widget.onClose != null,
+                  onTap: !widget.busy && widget.onClose != null
+                      ? () => Navigator.pop(dialogContext, 'close')
+                      : null,
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    _dialogOpen = false;
+    if (!mounted || widget.busy) return;
+    if ((action == 'archive' && !widget.archived) ||
+        (action == 'restore' && widget.archived)) {
+      widget.onArchive?.call();
+    } else if (action == 'close' && widget.running && !widget.closing) {
+      widget.onClose?.call();
+    }
   }
 
   Widget _action({
@@ -145,29 +214,37 @@ class _ThreadListTileState extends State<ThreadListTile>
               PointerDeviceKind.stylus,
               PointerDeviceKind.invertedStylus,
             },
-            onHorizontalDragStart: (_) {
-              _dragging = true;
-              _animation.stop();
-            },
-            onHorizontalDragUpdate: (event) {
-              _animation.value =
-                  (_animation.value + event.delta.dx / _actionsWidth).clamp(
-                    0,
-                    1,
-                  );
-            },
-            onHorizontalDragEnd: (event) {
-              _dragging = false;
-              final velocity = event.primaryVelocity ?? 0;
-              widget.onReveal(
-                velocity.abs() > 250 ? velocity > 0 : _animation.value > .4,
-              );
-              _animate();
-            },
-            onHorizontalDragCancel: () {
-              _dragging = false;
-              _animate();
-            },
+            onHorizontalDragStart: !kIsWeb
+                ? null
+                : (_) {
+                    _dragging = true;
+                    _animation.stop();
+                  },
+            onHorizontalDragUpdate: !kIsWeb
+                ? null
+                : (event) {
+                    _animation.value =
+                        (_animation.value + event.delta.dx / _actionsWidth)
+                            .clamp(0, 1);
+                  },
+            onHorizontalDragEnd: !kIsWeb
+                ? null
+                : (event) {
+                    _dragging = false;
+                    final velocity = event.primaryVelocity ?? 0;
+                    widget.onReveal(
+                      velocity.abs() > 250
+                          ? velocity > 0
+                          : _animation.value > .4,
+                    );
+                    _animate();
+                  },
+            onHorizontalDragCancel: !kIsWeb
+                ? null
+                : () {
+                    _dragging = false;
+                    _animate();
+                  },
             child: Material(
               key: ValueKey('thread-surface-${widget.id}'),
               color: widget.running
@@ -231,6 +308,9 @@ class _ThreadListTileState extends State<ThreadListTile>
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 11),
                         ),
+                        onLongPress: kIsWeb || widget.busy
+                            ? null
+                            : _showActions,
                         onTap: widget.busy
                             ? null
                             : () {
@@ -239,47 +319,48 @@ class _ThreadListTileState extends State<ThreadListTile>
                               },
                       ),
                     ),
-                    ClipRect(
-                      child: Align(
-                        widthFactor: _animation.value,
-                        alignment: Alignment.centerRight,
-                        child: IgnorePointer(
-                          ignoring: _animation.value < .99,
-                          child: ExcludeFocus(
-                            excluding: _animation.value == 0,
-                            child: ExcludeSemantics(
+                    if (kIsWeb)
+                      ClipRect(
+                        child: Align(
+                          widthFactor: _animation.value,
+                          alignment: Alignment.centerRight,
+                          child: IgnorePointer(
+                            ignoring: _animation.value < .99,
+                            child: ExcludeFocus(
                               excluding: _animation.value == 0,
-                              child: SizedBox(
-                                width: _actionsWidth,
-                                child: Row(
-                                  children: [
-                                    _action(
-                                      tooltip: widget.archived
-                                          ? '恢复会话'
-                                          : '归档会话',
-                                      label: widget.archived ? '恢复' : '归档',
-                                      icon: widget.archived
-                                          ? Icons.unarchive_outlined
-                                          : Icons.archive_outlined,
-                                      onPressed: widget.onArchive,
-                                      color: colors.primary,
-                                    ),
-                                    if (widget.running && !widget.closing)
+                              child: ExcludeSemantics(
+                                excluding: _animation.value == 0,
+                                child: SizedBox(
+                                  width: _actionsWidth,
+                                  child: Row(
+                                    children: [
                                       _action(
-                                        tooltip: '关闭会话',
-                                        label: '关闭',
-                                        icon: Icons.close_rounded,
-                                        onPressed: widget.onClose,
-                                        color: colors.error,
+                                        tooltip: widget.archived
+                                            ? '恢复会话'
+                                            : '归档会话',
+                                        label: widget.archived ? '恢复' : '归档',
+                                        icon: widget.archived
+                                            ? Icons.unarchive_outlined
+                                            : Icons.archive_outlined,
+                                        onPressed: widget.onArchive,
+                                        color: colors.primary,
                                       ),
-                                  ],
+                                      if (widget.running && !widget.closing)
+                                        _action(
+                                          tooltip: '关闭会话',
+                                          label: '关闭',
+                                          icon: Icons.close_rounded,
+                                          onPressed: widget.onClose,
+                                          color: colors.error,
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -292,6 +373,7 @@ class _ThreadListTileState extends State<ThreadListTile>
 
   @override
   void dispose() {
+    _dialogRevision.dispose();
     _animation.dispose();
     super.dispose();
   }

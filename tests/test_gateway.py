@@ -53,9 +53,9 @@ class GatewayFixture(unittest.TestCase):
             stderr=subprocess.STDOUT,
         )
         self.addCleanup(self.stop)
-        self.until(
-            lambda: self.request("GET", "/api/status")[1].get("codex") == "ready"
-        )
+        self.until(lambda: self.request("GET", "/api/status")[1].get("gateway") == "ready")
+        if getattr(self, "activate_runtime", True):
+            self.assertEqual(self.request("POST", "/api/runtime/start")[0], 200)
 
     def configure_runtime(self, config):
         pass

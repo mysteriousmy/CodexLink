@@ -416,9 +416,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
-                                controller.loadingThreads
+                                controller.startingRuntime
+                                    ? '正在启动共享 Codex…'
+                                    : controller.loadingThreads
                                     ? '正在读取本机会话…'
-                                    : '没有匹配的会话\n可切换范围或清除搜索条件',
+                                    : controller.threadListError ??
+                                          '没有匹配的会话\n可切换范围或清除搜索条件',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: colors.onSurfaceVariant,

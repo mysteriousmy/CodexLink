@@ -12,7 +12,8 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
-KillMode=control-group
+# The shared Codex daemon must outlive gateway restarts.
+KillMode=process
 UMask=0077
 
 [Install]

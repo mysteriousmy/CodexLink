@@ -20,25 +20,41 @@ internal abstract class CodexTransport : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(config.CodexSocketPath)) return Path.GetFullPath(config.CodexSocketPath);
         if (!config.PreferSharedDaemon || !config.CodexArguments.SequenceEqual(["app-server", "--listen", "stdio://"])) return null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
-        using var process = new Process { StartInfo = StartInfo(config.CodexPath, ["app-server", "daemon", "version"], Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)) };
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        var result = await DaemonCommandAsync(config.CodexPath, "version", timeout.Token);
+        if (result.String("status") != "running")
+            result = await DaemonCommandAsync(config.CodexPath, "start", timeout.Token);
+        if (result.String("status") is not ("running" or "started" or "alreadyRunning") ||
+            string.IsNullOrWhiteSpace(result.String("socketPath")))
+            throw new ApiException(503, "codex_start_failed", "共享 Codex 尚未就绪。请检查 Codex CLI 版本与主机账号后重试。");
+        return Path.GetFullPath(result.String("socketPath")!);
+    }
+
+    private static async Task<JsonNode?> DaemonCommandAsync(string path, string command, CancellationToken cancellationToken)
+    {
+        using var process = new Process { StartInfo = StartInfo(path, ["app-server", "daemon", command], Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)) };
         try
         {
             process.Start();
-            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
-            var errors = process.StandardError.ReadToEndAsync(timeout.Token);
-            await process.WaitForExitAsync(timeout.Token);
+            var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errors = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
             var text = await output;
             await errors;
-            if (process.ExitCode != 0) return null;
-            var result = JsonNode.Parse(text);
-            return result.String("status") == "running" ? result.String("socketPath") : null;
+            // A stopped current CLI returns a nonzero status rather than a
+            // JSON notRunning result. The idempotent start command handles it.
+            if (process.ExitCode != 0 && command == "version") return null;
+            if (process.ExitCode != 0)
+                throw new ApiException(503, "codex_start_failed", "无法连接或启动共享 Codex。请确认 codexPath 指向支持 app-server daemon 的 CLI，并以 Codex 登录账号运行网关；Windows 请使用非管理员进程。");
+            return JsonNode.Parse(text);
         }
         catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or System.Text.Json.JsonException or OperationCanceledException)
         {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            // Only stop the CLI launcher. Its detached shared daemon belongs to
+            // the user and may already be serving another client.
+            try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { }
             cancellationToken.ThrowIfCancellationRequested();
-            return null;
+            throw new ApiException(503, "codex_start_failed", "共享 Codex 启动失败。请检查 CLI 路径、版本和主机账号后重试。");
         }
     }
 

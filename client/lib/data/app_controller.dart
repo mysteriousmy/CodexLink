@@ -75,13 +75,15 @@ class AppController extends ChangeNotifier {
   bool _disposed = false;
   bool _foreground = true;
   bool _usageLoading = false;
+  Future<void>? _runtimeStartup;
+  bool get startingRuntime => _runtimeStartup != null;
   int _accountGeneration = 0;
   final List<JsonMap> _buffer = [];
   int get maxFileBytes =>
       (status['maxFileBytes'] as num?)?.toInt() ?? 25 * 1024 * 1024;
   String get connectionLabel => switch (connection) {
     ConnectionState.offline => '连接已断开',
-    ConnectionState.connecting => '正在连接',
+    ConnectionState.connecting => startingRuntime ? '正在启动 Codex' : '正在连接',
     ConnectionState.syncing => '恢复会话中',
     ConnectionState.connected => '已连接',
     ConnectionState.loginRequired => '需要登录',
@@ -154,6 +156,7 @@ class AppController extends ChangeNotifier {
     conversation.automaticInputSupported = status['automaticInput'] == true;
     authenticated = true;
     await _configureNotifications();
+    await ensureRuntime().catchError(reportError);
     if (status['codex'] == 'ready') {
       await loadProjects().catchError(reportError);
       models = asMaps(asMap(await api.request('GET', '/api/models'))['data']);
@@ -161,6 +164,38 @@ class AppController extends ChangeNotifier {
     }
     unawaited(refreshUsage());
     await connectEvents();
+  }
+
+  Future<void> ensureRuntime() {
+    if (status['onDemandRuntime'] != true || status['codex'] == 'ready') {
+      return Future.value();
+    }
+    return _runtimeStartup ??= _startRuntime();
+  }
+
+  Future<void> _startRuntime() async {
+    final origin = api.base.origin;
+    connection = ConnectionState.connecting;
+    status['codex'] = 'starting';
+    notifyListeners();
+    try {
+      final result = asMap(await api.request('POST', '/api/runtime/start'));
+      if (_disposed || !authenticated || api.base.origin != origin) return;
+      status.addAll(result);
+      status['codexError'] = null;
+      threadListError = null;
+    } catch (exception) {
+      if (!_disposed && authenticated && api.base.origin == origin) {
+        status['codex'] = 'unavailable';
+        status['codexError'] = exception.toString();
+        connection = ConnectionState.codexUnavailable;
+        threadListError = exception.toString();
+      }
+      rethrow;
+    } finally {
+      _runtimeStartup = null;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> _configureNotifications() => notifications.configure(
@@ -180,6 +215,7 @@ class AppController extends ChangeNotifier {
     threadListError = null;
     notifyListeners();
     try {
+      await ensureRuntime();
       final result = asMap(
         await api.request(
           'GET',
@@ -573,8 +609,15 @@ class AppController extends ChangeNotifier {
       conversation.queueSupported = status['queuedMessages'] == true;
       conversation.automaticInputSupported = status['automaticInput'] == true;
       unawaited(_configureNotifications());
-      await conversation.reload();
-      await loadThreads();
+      if (status['onDemandRuntime'] == true &&
+          (status['codex'] == 'idle' || status['codex'] == 'starting')) {
+        await ensureRuntime().catchError(reportError);
+      }
+      if (!_currentConnection(generation)) return;
+      if (status['codex'] == 'ready') {
+        await conversation.reload();
+        await loadThreads();
+      }
       if (!_currentConnection(generation)) return;
       for (final event in _buffer) {
         _dispatch(event);
@@ -596,6 +639,7 @@ class AppController extends ChangeNotifier {
     final method = event['method'] as String? ?? '';
     final parameters = asMap(event['params']);
     if (method == 'runtime/stopped') {
+      status['codex'] = 'unavailable';
       connection = ConnectionState.codexUnavailable;
       conversation.runtimeStopped();
       notifyListeners();
@@ -756,7 +800,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshUsage({bool force = false}) async {
-    if (!authenticated || _usageLoading) return;
+    if (!authenticated ||
+        _usageLoading ||
+        (status['onDemandRuntime'] == true && status['codex'] != 'ready')) {
+      return;
+    }
     _usageLoading = true;
     final accountGeneration = _accountGeneration;
     try {

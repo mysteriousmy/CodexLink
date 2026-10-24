@@ -337,3 +337,15 @@ Flutter 全套 **112 项**通过，Chrome 交互回归 **44 项**通过，等待
 [v0.1.7 四平台最终原生运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40112034624)全部通过，源码提交为 `06ea14e9fbe461e214444c681365800041e8f611`。Windows x64/ARM64 与 Linux x64/ARM64 下载并校验最终发布归档，覆盖上述新增操作和既有权限、问答、队列及内嵌网页；Linux x64/ARM64 另各通过完整 **72 项**契约（100.876 / 85.809 秒）。
 
 最终四个服务端包与四种 APK 已重新核对版本、可执行文件摘要、ABI、签名和递增版本号，Android 签名证书与 v0.1.6 一致；八个分发文件通过 SHA256SUMS。九个远端 Release 资产的大小与 SHA-256 均匹配本地产物。已知私密值检查覆盖 1,819 份源码、原生文件与归档内容，匹配 0；Gitleaks 源码导出和 21 次提交历史无发现。Android 模拟器中安装的最终 APK 摘要也与发布资产一致。
+
+## v0.1.8 — 按需共享启动、App 长按与默认补充队列
+
+- 网关从 idle 开始；健康/状态/通知查询不拉起 Codex。首次鉴权使用合并并发启动，发现已有共享 daemon 或调用官方 daemon start。启动失败返回原因且可重试，不静默创建私有 stdio；手机取消等待不取消共享启动。`test_passive_routes_stay_idle_and_concurrent_demand_starts_once`、`test_failed_shared_start_is_retryable_and_never_falls_back_to_stdio`、`test_existing_daemon_is_discovered_without_start`、`test_disconnected_request_does_not_cancel_shared_startup` 覆盖这些边界。
+- 真实 CLI 0.164.0 在独立 CODEX_HOME 验证未运行时 version 返回非零、首次使用冷启动、退出网关后 daemon 存活、第二次网关重新连接。Managed DLL 与 Linux x64 压缩 AOT 均通过 `scripts/smoke-daemon.py`；测试只执行状态/连接操作，没有账号登录、模型请求、真实线程或共享实例重启。
+- App 长按打开归档/运行中关闭/已归档恢复菜单，取消不进入会话，横滑不触发操作，弹窗跟随会话状态变化。`native_long_press_actions_cancel_and_live_state` 通过；Chrome 原有右滑、鼠标悬停、键盘与纵向滚动共 4 项保持通过。
+- 默认补充在真实活动轮次下进入原生队列，提示条提供立即 steer 和撤回。`test_automatic_input_starts_idle_and_queues_active_turn_with_send_now`、`test_default_followup_can_withdraw_before_native_dispatch`、`test_automatic_input_unknown_queue_acceptance_never_retries_or_steers` 与 `default_followup_exposes_send_now_and_withdraw_before_submission` 覆盖默认提交、附件、按钮、去重及未知结果。立即 steer 不执行 turn/interrupt；旧版已接收补充不能追溯撤回。
+- Flutter analyze 无问题，117 项 Flutter 单元/Widget 测试通过。Linux systemd 模板和安装器改为 KillMode=process，使共享 daemon 不被网关 cgroup 停止流程连带终止；显式私有 stdio 仍由网关自行清理。
+
+跨平台发布包运行检查另记录实际 CI 结果；本机 Linux 验证不代表 Windows 实机验证，Widget/Chrome 测试不代表物理手机触摸验收。
+
+Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试（96.305 秒），包含客户端断开时共享启动继续、冷启动失败重试及已有共享服务复用。测试使用隔离的假 Codex，真实 daemon 生命周期另按上述脚本验证。

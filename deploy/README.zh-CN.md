@@ -105,6 +105,6 @@ Linux 和 Windows x64 可执行文件已用 UPX 压缩；Windows ARM64 因 UPX �
 
 Release 优先体积，裁掉托管堆栈元数据与调试器支持，框架异常使用资源键；业务错误仍保留，需要完整托管堆栈时编译 Debug。Linux 使用 invariant globalization，移除 ICU 及区域特定的排序/格式化；UTF-8 中文、JSON、HTTPS 和 WebSocket 仍可用。IANA 时区使用系统 tzdata；Windows 保留平台国际化支持。
 
-优先连接已有兼容 Codex daemon，否则启动自己的 stdio 子进程。停止网关不会结束共享 daemon，但会停止自己持有的 stdio 子进程。事件重放、审批和 requestId 去重为进程内缓存；重启后先核对未知结果，不盲目重复提交。
+网关开机时待机，首次客户端使用才连接已有 Codex daemon 或执行 `codex app-server daemon start`；失败不回退私有进程。健康检查、状态查询和后台通知不会触发启动。仅 `preferSharedDaemon: false` 或自定义 `codexArguments` 使用自有 stdio。以 Codex 所属账号和原生程序运行，Windows 不要使用管理员进程。Linux 单元使用 `KillMode=process`，防止重启网关连带结束同一 cgroup 的共享 Codex；升级旧服务时请重新运行安装器或先更新此项。停止网关不会结束共享 daemon，但会停止自己持有的 stdio 子进程。事件重放、审批和 requestId 去重为进程内缓存；重启后先核对未知结果，不盲目重复提交。
 
 完整源码、介绍与本地编译：https://github.com/mysteriousmy/CodexLink

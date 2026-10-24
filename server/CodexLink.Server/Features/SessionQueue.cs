@@ -38,14 +38,20 @@ public sealed partial class SessionService
                 if (session.ControlReason is not null) throw new ApiException(409, "thread_read_only", session.ControlReason);
                 await ResumeInsideLockAsync(id, session);
                 if (session.ActiveTurn is null) EnsureProjectAvailable(id, session);
-                if ((await ReadQueueAsync(id)).Length >= 16) throw new ApiException(429, "queue_capacity", "最多保留 16 条待发送内容，请先发送或撤回。");
                 var input = await _attachments.BuildInputAsync(id, request.Text, request.AttachmentIds ?? []);
                 await _catalog.AddInputsAsync(input, session.Project.Path, request.References ?? []);
-                var response = await _rpc.CallAsync("thread/queue/add", Json.Object(("threadId", id), ("input", input), ("clientUserMessageId", QueuePrefix + (string.IsNullOrWhiteSpace(request.Text) ? "files-" : "text-") + request.RequestId)));
-                return Json.Object(("submission", ProjectQueuedInput(response?["queuedSubmission"])));
+                return await AddQueuedInputAsync(id, request, input);
             }
             finally { session.Gate.Release(); }
         });
+    }
+
+    private async Task<JsonNode?> AddQueuedInputAsync(string id, SendMessageRequest request, JsonArray input)
+    {
+        if ((await ReadQueueAsync(id)).Length >= 16) throw new ApiException(429, "queue_capacity", "最多保留 16 条待发送内容，请先发送或撤回。");
+        var response = await _rpc.CallAsync("thread/queue/add", Json.Object(("threadId", id), ("input", input),
+            ("clientUserMessageId", QueuePrefix + (string.IsNullOrWhiteSpace(request.Text) ? "files-" : "text-") + request.RequestId)));
+        return Json.Object(("submission", ProjectQueuedInput(response?["queuedSubmission"])));
     }
 
     public Task<JsonNode?> QueueActionAsync(string device, string id, string queuedId, QueueActionRequest request, bool send)

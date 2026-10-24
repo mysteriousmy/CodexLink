@@ -319,8 +319,8 @@ public sealed partial class SessionService
             {
                 await ResumeInsideLockAsync(id, session);
                 if (session.ControlReason is not null) throw new ApiException(409, "thread_read_only", session.ControlReason);
-                // Choose against the subscribed runtime state under the same
-                // gate as submission. Codex controls when a steer is consumed.
+                // Default follow-ups stay in Codex's durable, withdrawable
+                // queue. Explicit send-now uses turn/steer without interrupting.
                 if (automatic) expectedTurn = session.ActiveTurn;
                 if (expectedTurn is null && session.ActiveTurn is not null) throw new ApiException(409, "thread_busy", "任务正在执行，请使用补充指令。");
                 if (expectedTurn is not null && expectedTurn != session.ActiveTurn) throw new ApiException(409, "turn_changed", "当前轮次已结束或改变。草稿已保留，请核对后重新发送。");
@@ -329,6 +329,8 @@ public sealed partial class SessionService
                 if (expectedTurn is null) EnsureProjectAvailable(id, session);
                 var input = await _attachments.BuildInputAsync(id, request.Text, request.AttachmentIds ?? []);
                 await _catalog.AddInputsAsync(input, session.Project.Path, request.References ?? []);
+                if (automatic && expectedTurn is not null)
+                    return await AddQueuedInputAsync(id, request, input);
                 var parameters = Json.Object(("threadId", id), ("input", input), ("clientUserMessageId", request.RequestId));
                 if (expectedTurn is not null) parameters["expectedTurnId"] = expectedTurn;
                 else

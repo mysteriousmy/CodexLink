@@ -38,7 +38,7 @@ Real Web and Android Release UI with fictional demo conversations, projects and 
 
 ## Manage sessions
 
-With the gateway and client on **v0.1.7**, running sessions have a teal background and a **运行中** label. Swipe a mobile row to the right to reveal trailing **归档** and **关闭** actions; an idle row only offers archive. Web reveals the same actions on mouse hover or keyboard focus. Archived rows offer restore.
+With the gateway and client on **v0.1.8**, running sessions have a teal background and a **运行中** label. Long-press an App row to open **归档** and, while running, **关闭** actions; archived rows offer restore. Web keeps its existing mouse-hover, keyboard-focus and touch-swipe controls.
 
 Archive uses Codex's native archive and keeps saved history. Close unsubscribes this gateway from the running instance. Codex unloads it after it becomes idle, other subscribers have detached, and its configured unload delay expires. Until the native closed event arrives, the list shows **等待卸载**. Close does not interrupt a turn or pause a Goal. If another client owns the instance and this gateway is not subscribed, the action reports that it cannot unload it. Open the session again to resume its original ID and history; refresh alone does not reopen a closed session. Composer drafts and references are preserved.
 
@@ -56,7 +56,7 @@ Upgrade the gateway and Android app to v0.1.5 or later. Pending questions appear
 
 Asynchronous replies use Codex’s question-reply envelope, including the original message and question IDs, through a new turn or `turn/steer`. Compatible Codex TUI clients can dismiss the corresponding queued questions. Your existing composer content is preserved. If submission is uncertain, **核对提交结果** queries its status instead of resending. If a question was sent by an older Codex version without structured question metadata, its ordinary message remains readable and can be answered in the composer.
 
-With the gateway and client on **v0.1.7**, normal sending chooses a new turn when idle or native steer during an active turn. Codex decides whether to consume the steer immediately or after its current work; accepted input appears above the composer until its actual message event arrives. Use **本轮结束后发送** to explicitly queue a follow-up instead. Queued input retains **立即发送** (steer now) and **撤回** (restore text, attachments and references to the draft). A steer already accepted by Codex has no withdrawal API. Goal, questions, pending steers and queued inputs share a bounded, scrollable area above the composer. Unknown submissions are reconciled without automatically sending again.
+With the gateway and client on **v0.1.8**, normal sending starts a turn when idle and queues a follow-up while running. Codex automatically dispatches queued input after the current turn ends. The bar offers **立即 steer** to submit it to the current turn now and **撤回** to restore text, attachments and references to the draft. Send-now uses native steer without interrupting; Codex still controls when it consumes that accepted input. Already accepted steers from an older client cannot be withdrawn. Goal, questions and queued inputs share a bounded, scrollable area. Unknown submissions are reconciled without automatically sending again.
 
 Android compact layouts use native page transitions and predictive back for conversations and Diff; system back closes image previews and other dialogs before leaving the conversation. Web conversation navigation retains its existing layout.
 
@@ -67,10 +67,12 @@ flowchart LR
     A[Android app] -->|Authenticated HTTP and WebSocket| G[CodexLink Native AOT gateway]
     B[Browser / embedded Flutter Web] -->|Same-origin cookie and WebSocket| G
     G -->|Official shared Unix WebSocket when available| S[Existing Codex app-server]
-    G -->|Otherwise managed stdio subprocess| C[Codex CLI app-server]
+    G -->|Explicit private/custom mode only| C[Codex CLI app-server]
     S --> P[Host projects and Codex sessions]
     C --> P
 ```
+
+The gateway stays idle at boot. Opening the client connects to an existing daemon or runs `codex app-server daemon start` once; health and notification checks do not start Codex. A startup failure is visible and can be retried by refreshing the session list. No Codex boot service or global settings are installed. Windows requires a current native Codex executable and the same non-elevated account used by Codex. Linux service templates use `KillMode=process` so shared work survives gateway restarts.
 
 The gateway has no business database and does not copy or read Codex's private conversation database/logs. It stores only its own configuration, token hashes, uploaded files and bounded preview/cache state and a small task-notification journal. Existing conversations are restored through official protocol calls. The preferred shared-daemon connection owns only its socket; closing CodexLink does not terminate that shared daemon.
 
@@ -182,9 +184,9 @@ The full format is in [config.example.json](deploy/config.example.json). Generat
 | `listenUrl` | HTTP listener; default `http://0.0.0.0:47821` |
 | `publicOrigin` | Exact HTTPS browser origin when using a reverse proxy, without a trailing slash |
 | `codexPath` | Codex executable name or absolute native executable path |
-| `preferSharedDaemon` | Prefer an existing compatible local daemon; default `true` |
+| `preferSharedDaemon` | Connect/start a shared daemon on first use; fail without private fallback; default `true` |
 | `codexSocketPath` | Optional explicit shared Unix socket path |
-| `codexArguments` | Default `app-server --listen stdio://` fallback arguments |
+| `codexArguments` | `app-server --listen stdio://`; only used when shared mode is explicitly disabled (or custom arguments are supplied) |
 | `devices` | Device IDs/names and SHA-256 token hashes; manage with CLI commands |
 | `maxFileBytes` / `maxStorageBytes` | Per-upload and aggregate attachment storage limits |
 | `timeZone` | Time zone used for daily usage; new initialization uses the host's local zone |

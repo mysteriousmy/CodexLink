@@ -59,13 +59,15 @@ def main():
                     if process.poll() is not None:
                         raise RuntimeError(f'Server exited before ready: {process.returncode}')
                     try:
-                        if json.loads(request('/api/status')[2])['codex'] == 'ready':
+                        if json.loads(request('/api/status')[2])['gateway'] == 'ready':
                             break
                     except (OSError, ValueError, KeyError):
                         pass
                     if time.monotonic() > deadline:
                         raise TimeoutError('Server did not become ready with the fake Codex')
                     time.sleep(.1)
+                assert json.loads(request('/api/status')[2])['codex'] == 'idle'
+                assert json.loads(request('/api/runtime/start', {})[2])['codex'] == 'ready'
                 try:
                     request('/api/projects', auth=False)
                     raise AssertionError('Unauthenticated API request succeeded')
@@ -162,7 +164,9 @@ def main():
                     time.sleep(.05)
                 turn = json.loads(request(f'/api/threads/{thread}/input', {'requestId':str(uuid.uuid4()), 'text':'hold'})[2])['turn']['id']
                 automatic = json.loads(request(f'/api/threads/{thread}/input', {'requestId':str(uuid.uuid4()), 'text':'automatic steer'})[2])
-                assert automatic['turnId'] == turn
+                assert automatic['submission']['text'] == 'automatic steer'
+                pending = automatic['submission']
+                assert json.loads(request(f"/api/threads/{thread}/queue/{pending['id']}/send", {'requestId':str(uuid.uuid4()), 'expectedTurnId':turn})[2])['state'] == 'sent'
                 deadline = time.monotonic() + 10
                 while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
                     if time.monotonic() > deadline: raise TimeoutError('Automatic steer did not complete')

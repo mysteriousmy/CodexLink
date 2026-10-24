@@ -253,6 +253,7 @@ def call(method, p):
     if method == 'thread/queue/list':
         return {'data':queues.get(tid, []), 'nextCursor':None}
     if method == 'thread/queue/add':
+        if Path(os.environ['CODEXLINK_DATA'], 'queue-disconnect').exists(): os._exit(7)
         item = {'id':str(uuid.uuid4()), 'input':p['input'], 'clientUserMessageId':p['clientUserMessageId']}
         queues.setdefault(tid, []).append(item)
         event('thread/queue/changed', threadId=tid)
