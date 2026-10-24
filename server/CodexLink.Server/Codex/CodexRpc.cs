@@ -169,7 +169,7 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
                     var key = _approvals.FirstOrDefault(a => JsonNode.DeepEquals(a.Value["rpcId"], requestId)).Key ?? Guid.NewGuid().ToString("N");
                     var approval = Json.Object(("id", key), ("rpcId", requestId.Copy()), ("method", method), ("params", parameters.Copy()));
                     _approvals[key] = approval;
-                    events.Publish("approval/requested", approval);
+                    PublishApproval("approval/requested", approval);
                 }
                 else if (!Shared) await WriteAsync(Json.Object(("id", requestId.Copy()), ("error", Json.Object(("code", -32601), ("message", "Unsupported client request")))), cancellationToken);
                 continue;
@@ -177,7 +177,7 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
             if (method == "serverRequest/resolved")
             {
                 foreach (var item in _approvals.Where(a => JsonNode.DeepEquals(a.Value["rpcId"], parameters?["requestId"])).ToArray())
-                    if (_approvals.TryRemove(item.Key, out _)) events.Publish("approval/resolved", Json.Object(("id", item.Key)));
+                    if (_approvals.TryRemove(item.Key, out _)) PublishApproval("approval/resolved", Json.Object(("id", item.Key)));
             }
             if (method is "turn/completed")
             {
@@ -185,13 +185,19 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
                 var turnId = parameters?["turn"].String("id");
                 foreach (var item in _approvals.Where(x => x.Value["params"].String("threadId") == threadId &&
                     x.Value["params"].String("turnId") == turnId).ToArray())
-                    if (_approvals.TryRemove(item.Key, out _)) events.Publish("approval/resolved", Json.Object(("id", item.Key)));
+                    if (_approvals.TryRemove(item.Key, out _)) PublishApproval("approval/resolved", Json.Object(("id", item.Key)));
             }
             Notification?.Invoke(method, parameters);
             if (method.StartsWith("thread/", StringComparison.Ordinal) || method.StartsWith("turn/", StringComparison.Ordinal) ||
                 method.StartsWith("item/", StringComparison.Ordinal) || method is "account/updated" or "account/rateLimits/updated" or "error")
                 events.Publish(method, parameters);
         }
+    }
+
+    private void PublishApproval(string method, JsonObject parameters)
+    {
+        Notification?.Invoke(method, parameters);
+        events.Publish(method, parameters);
     }
 
     public async Task AnswerAsync(string id, JsonNode result)
@@ -207,7 +213,7 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
             if (!_approvals.TryRemove(id, out _)) throw new ApiException(409, "approval_expired", "请求已处理或失效。");
             // A failed write may already have reached Codex; do not offer a blind retry.
             try { await transport.SendAsync(Json.Compact(Json.Object(("id", approval["rpcId"].Copy()), ("result", result))), CancellationToken.None); }
-            finally { events.Publish("approval/resolved", Json.Object(("id", id))); }
+            finally { PublishApproval("approval/resolved", Json.Object(("id", id))); }
         }
         finally { _write.Release(); }
     }

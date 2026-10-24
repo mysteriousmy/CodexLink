@@ -41,6 +41,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final thread = controller.notifications.openedThread.value;
       if (!mounted || !controller.usable || thread == null) return;
       controller.notifications.openedThread.value = null;
+      Navigator.of(context)
+          .popUntil((route) => route == _conversationRoute || route.isFirst);
       unawaited(_select(thread));
     });
     // A system notification can be clicked while the page is already focused.

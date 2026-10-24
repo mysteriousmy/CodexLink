@@ -310,3 +310,26 @@ Flutter 全套 **112 项**通过，Chrome 交互回归 **44 项**通过，等待
 隔离的 Codex CLI **0.164.0** stdio 实例，以临时配置和 ephemeral 线程验证 `thread/unsubscribe → unsubscribed → thread/closed → 再次 unsubscribe 返回 notLoaded`。只对测试进程设置 `thread_unload_delay_secs=0`，**没有提交 turn、没有调用模型、没有修改用户共享 daemon 或全局配置**。真实卸载遵守原生空闲、无其他订阅和延迟条件；当前关闭操作不主动中断任务或暂停 Goal，不将取消订阅冒充已卸载。规则依据 [Codex 原生卸载实现](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs)。
 
 事件补丁按字段版本合并、最多保留 1024 个线程；重连增加一次当前筛选的列表读取，无周期性列表轮询。验证不包含新一轮 Android 实机帧时间、蜂窝网络或 iOS 签名测试。
+
+新增提问通知与自动发送前的 Linux x64 草稿归档已通过扩展的 `smoke-release.py`（包含关闭、真实通知后重开、归档、恢复）与完整 **64 项**服务端黑盒测试（78.891 秒）。源码导出扫描与待提交变更扫描均未发现凭据。
+
+扩展需求前的四个平台 AOT 草稿归档版本与可执行文件摘要验证通过；两个 Linux 包构建时验证无 ELF INTERP/NEEDED，三个支持的架构通过 UPX 自检，Windows ARM64 保持未压缩。四种 APK 通过 `apksigner verify`，ABI 与文件名一致、沿用 v0.1.6 签名，版本号递增；八个分发文件通过 SHA256SUMS。已知私有值扫描检查 1,817 个源码/二进制/归档成员，匹配 0；Gitleaks 导出源码与 20 次提交历史均为 0 发现。
+
+### v0.1.7 提问通知、自动 steer 与 Android 通知连接修正
+
+- 默认发送由服务端按订阅状态选择新轮次或 `turn/steer`，保留手动“本轮结束后发送”与队列的立即发送/撤回。原生 steer 的接入时机由 Codex 控制，依据 [同版本原生 pending-input 测试](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/core/tests/suite/pending_input.rs)，覆盖立即介入、工具输出保留与等待 compaction。网关不通过 interrupt 模拟时机、不自动重发不明结果。
+- 原生与异步提问通过独立 `question` SSE 事件提醒，旧客户端继续接收完成通知；摘要最多 240 字符，私密问题只使用通用提示，答案从不写入通知。跨客户端逐题回答、原生请求结束、归档与原生连接重启会清除对应提醒，异步未答问题保留。已回答事件替换旧提醒时不误报通知历史丢失。
+- Android 16 模拟器通过 **10.0.2.2:47830** 连接独立假 Codex，v0.1.6 Release 精确复现聊天已连接而通知一直重连；同一登录覆盖安装新 Release APK 后显示连接正常。原因是原生网络安全配置只允许 localhost 的 HTTP，Flutter 聊天使用另一条网络路径。现在允许用户配置的 LAN HTTP，保留 HTTPS 的证书校验；设置弹窗每两秒读取本地服务状态，连接故障显示固定分类诊断与立即重连，服务端 SSE 禁止代理缓存/变换。
+- 全量 Flutter **116 项**通过；Chrome **40 项**通过；包含覆盖层关闭、四类提示条与键盘的新断言后，通知/队列交互 **17 项**再次通过。`flutter analyze` 无问题。Managed Release 全量 **72 项**通过（34.949 秒）。
+- 模拟器实际通知栏展示原生多问题摘要，私密问题文本被替换为通用提示；点按通知打开对应会话并显示三个待答问题。所有测试使用隔离假 Codex，不访问真实模型或用户会话。
+
+| Requirement | Evidence |
+| --- | --- |
+| 自动选择新轮次/steer，不重复提交 | `test_automatic_input_starts_idle_and_steers_active_turn_once`、`test_automatic_input_unknown_acceptance_never_queues_or_retries` |
+| 已接收补充展示/实际消费清理/历史恢复 | `automatic_send_uses_runtime_selection_and_tracks_native_consumption`、`automatic_steer_acceptance_before_response_and_restart_do_not_leave_stale_bar` |
+| 保留手动排队、立即发送/撤回和多栏布局 | `withdraw_button_updates_visible_editor_and_next_submission`、`test_send_now_steers_expected_turn_without_interrupt_or_duplicate`、`goal_questions_queue_and_keyboard_remain_scrollable_without_overlap` |
+| 问题摘要与原生/逐题已答清理、重启 | `test_native_question_preview_click_identity_and_answer_cancellation`、`test_async_question_partial_other_client_reply_and_duplicate_do_not_realert`、`test_async_pending_question_survives_restart_and_archive_cancels` |
+| 通知点击进入准确会话，关闭遮挡层 | `question_notice_shows_preview_opens_thread_and_clears_only_answered_question`、`system_notification_click_schedules_idle_ui_and_opens_matching_thread` |
+| 通知连接状态刷新与主动重连 | `notification_dialog_refreshes_reconnected_service_and_offers_retry`；Android Release 局域网 HTTP 复现实测 |
+
+扩展后的最终 Linux x64 UPX Native AOT 程序通过新增自动 start/steer、提问摘要/逐题清理的冒烟检查和全部 **72 项**网关契约（21.688 秒）。Chromium 实际 Web 验证问题气泡和准确会话跳转、系统通知队列中的两题摘要、回答第一题后仅保留第二题，以及通知点击事件打开剩余问题所在会话。系统通知点击由自动化合成，浏览器拒绝抢焦点（`InvalidAccessError`），但会话路由和问题显示成功；不冒称人工点击桌面通知。Android 同样在 App 后台收到两题提醒，从另一客户端答一题后仅清除对应的系统通知。

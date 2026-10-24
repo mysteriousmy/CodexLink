@@ -16,6 +16,10 @@ import java.io.BufferedReader
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -36,6 +40,7 @@ class TaskNotificationService : Service() {
         internal fun startFailed() { connection = "stopped" }
     }
     private class NotificationsBlocked : IOException()
+    private class InvalidFeed(val reason: String) : IOException()
     private val store by lazy { NotificationStore(this) }
     private val manager by lazy { getSystemService(NotificationManager::class.java) }
     @Volatile private var generation = 0
@@ -48,14 +53,14 @@ class TaskNotificationService : Service() {
         super.onCreate()
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(NotificationChannel(STATUS_CHANNEL, "后台任务提醒连接", NotificationManager.IMPORTANCE_LOW))
-            manager.createNotificationChannel(NotificationChannel(TASK_CHANNEL, "任务完成与失败", NotificationManager.IMPORTANCE_HIGH))
+            manager.createNotificationChannel(NotificationChannel(TASK_CHANNEL, "任务提问、完成与失败", NotificationManager.IMPORTANCE_HIGH))
         }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Every startForegroundService call must promptly enter foreground, even if config was revoked.
         val notification = builder(STATUS_CHANNEL).setSmallIcon(R.drawable.ic_task_notification)
             .setContentTitle("CodexLink 任务提醒")
-            .setContentText("正在后台接收任务完成通知")
+            .setContentText("正在后台接收提问与任务结果")
             .setContentIntent(openApp()).setOngoing(true).setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE).build()
         if (Build.VERSION.SDK_INT >= 34) startForeground(STATUS_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -64,7 +69,7 @@ class TaskNotificationService : Service() {
         if (session == null || !store.preferences.getBoolean("enabled", false) || !manager.areNotificationsEnabled()) {
             stopSelf(); return START_NOT_STICKY
         }
-        if (identity == session.identity && worker?.isAlive == true) return START_STICKY
+        if (identity == session.identity && worker?.isAlive == true && intent?.getBooleanExtra("reconnect", false) != true) return START_STICKY
         generation++
         transport?.disconnect(); worker?.interrupt()
         identity = session.identity
@@ -92,6 +97,8 @@ class TaskNotificationService : Service() {
                 socket.readTimeout = 45000
                 socket.setRequestProperty("Authorization", "Bearer ${session.token}")
                 socket.setRequestProperty("Accept", "text/event-stream")
+                socket.setRequestProperty("Accept-Encoding", "identity")
+                socket.setRequestProperty("Cache-Control", "no-cache")
                 val code = socket.responseCode
                 if (code in listOf(401, 403, 404) || code in 300..399) {
                     synchronized(deliveryLock) {
@@ -104,9 +111,10 @@ class TaskNotificationService : Service() {
                     }
                     return
                 }
-                if (code != 200 || socket.contentType?.startsWith("text/event-stream") != true) throw IOException("Invalid notification response")
+                if (code != 200) throw InvalidFeed("通知服务返回 HTTP $code，正在重试")
+                if (socket.contentType?.startsWith("text/event-stream", ignoreCase = true) != true)
+                    throw InvalidFeed("通知接口没有返回事件流，请检查服务地址或反向代理")
                 if (!current(session, expected)) return
-                connection = "connected"
                 socket.inputStream.bufferedReader(Charsets.UTF_8).use { input ->
                     var event = ""
                     var id = ""
@@ -129,6 +137,7 @@ class TaskNotificationService : Service() {
                         }
                     }
                 }
+                throw IOException("Notification stream ended")
             } catch (_: NotificationsBlocked) {
                 synchronized(deliveryLock) {
                     if (current(session, expected)) {
@@ -138,8 +147,19 @@ class TaskNotificationService : Service() {
                     }
                 }
                 return
-            } catch (_: Exception) {
-                // Never log exception/URL/header contents: the stream is authenticated.
+            } catch (error: Exception) {
+                // Show a fixed diagnostic without leaking URLs, tokens or server bodies.
+                val reason = when (error) {
+                    is InvalidFeed -> error.reason
+                    is UnknownHostException -> "无法解析通知服务地址，正在重试"
+                    is ConnectException -> "无法连接通知服务，请检查网络与电脑服务"
+                    is SocketTimeoutException -> "通知连接超时，请检查网络或代理是否缓冲事件流"
+                    is SSLException -> "通知连接的 HTTPS 证书验证失败，请检查证书配置"
+                    else -> "通知连接已断开，正在重新连接"
+                }
+                synchronized(deliveryLock) {
+                    if (current(session, expected)) store.preferences.edit().putString("error", reason).apply()
+                }
             } finally {
                 socket?.disconnect()
                 if (transport === socket) transport = null
@@ -161,21 +181,29 @@ class TaskNotificationService : Service() {
         }
     }
     private fun consume(event: String, eventId: String, data: JSONObject, session: NoticeSession) {
-        if (event == "task") {
+        if (event == "task" || event == "question") {
             val id = data.getString("id")
             val thread = data.getString("threadId")
             val state = data.getString("status")
-            require(id.length <= 513 && thread.length <= 256 && state in listOf("completed", "failed"))
+            val question = if (event == "question") data.getString("questionId") else null
+            val preview = data.optString("preview", "点按查看对应会话").take(240)
+            require(id.length <= 513 && thread.length <= 256 &&
+                if (question == null) state in listOf("completed", "failed")
+                else question.length <= 1024 && state in listOf("question", "resolved"))
+            val tag = if (question == null) "task:$thread" else "question:$thread:$question"
             val recent = JSONArray(store.preferences.getString("seen", "[]"))
             val seen = (0 until recent.length()).map { recent.getString(it) }.toMutableList()
             if (id !in seen) {
                 // Persist after delivery: a process death can repeat a tag, but cannot acknowledge an unseen result.
-                postResult(thread, state, session)
+                if (state == "resolved") manager.cancel(tag, 0)
+                else postResult(thread, state, preview, tag, session)
                 seen.add(id)
                 store.preferences.edit().putString("seen", JSONArray(seen.takeLast(256)).toString()).commit()
             }
             saveCursor(eventId)
         } else if (event == "ready") {
+            connection = "connected"
+            store.preferences.edit().remove("error").apply()
             if (data.optBoolean("gap")) {
                 manager.notify("task-gap", 0, builder(TASK_CHANNEL).setSmallIcon(R.drawable.ic_task_notification)
                     .setContentTitle("部分任务提醒可能已过期")
@@ -192,7 +220,7 @@ class TaskNotificationService : Service() {
         if (sequence < 0) return
         store.preferences.edit().putString("epoch", id.substring(0, split)).putLong("cursor", sequence).commit()
     }
-    private fun postResult(thread: String, state: String, session: NoticeSession) {
+    private fun postResult(thread: String, state: String, preview: String, tag: String, session: NoticeSession) {
         if (!manager.areNotificationsEnabled()) throw NotificationsBlocked()
         if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(TASK_CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE)
             throw NotificationsBlocked()
@@ -203,14 +231,13 @@ class TaskNotificationService : Service() {
             .putExtra("noticeThread", thread).putExtra("noticeSession", session.identity)
         val pending = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = builder(TASK_CHANNEL).setSmallIcon(R.drawable.ic_task_notification)
-            .setContentTitle(if (state == "failed") "Codex 本轮任务失败" else "Codex 本轮任务已完成")
-            .setContentText("点按查看对应会话")
+            .setContentTitle(when (state) { "question" -> "Codex 有问题请你回答"; "failed" -> "Codex 本轮任务失败"; else -> "Codex 本轮任务已完成" })
+            .setContentText(preview).setStyle(Notification.BigTextStyle().bigText(preview))
             .setContentIntent(pending).setAutoCancel(true)
             .setVisibility(Notification.VISIBILITY_PRIVATE).setCategory(Notification.CATEGORY_STATUS)
             .setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL).build()
-        // Keep one result per thread and at most twenty unread result cards.
-        val tag = "task:$thread"
-        val active = manager.activeNotifications.filter { it.tag?.startsWith("task:") == true && it.tag != tag }
+        // Keep each pending question independently, with at most twenty unread cards.
+        val active = manager.activeNotifications.filter { (it.tag?.startsWith("task:") == true || it.tag?.startsWith("question:") == true) && it.tag != tag }
             .sortedBy { it.postTime }
         active.take((active.size - 19).coerceAtLeast(0)).forEach { manager.cancel(it.tag, it.id) }
         manager.notify(tag, 0, notification)

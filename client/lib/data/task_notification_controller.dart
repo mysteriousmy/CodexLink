@@ -54,7 +54,12 @@ class TaskNotificationController extends ChangeNotifier {
     while (_seen.length > 256) {
       _seen.remove(_seen.first);
     }
-    _notices.removeWhere((item) => item.threadId == notice.threadId);
+    _notices.removeWhere((item) => item.key == notice.key);
+    if (notice.resolved) {
+      _schedule();
+      _notify();
+      return;
+    }
     _notices.insert(0, notice);
     while (_notices.length > 3) {
       _notices.removeLast();

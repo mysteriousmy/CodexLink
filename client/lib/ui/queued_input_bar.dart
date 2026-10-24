@@ -18,13 +18,31 @@ class QueuedInputBar extends StatelessWidget {
           !controller.queuedInputs.any((q) => q['id'] == pendingInput['id']))
         pendingInput,
     ];
-    if (entries.isEmpty && controller.queueError == null) {
+    if (entries.isEmpty &&
+        controller.acceptedSteers.isEmpty &&
+        controller.queueError == null) {
       return const SizedBox.shrink();
     }
     return Column(
       key: const ValueKey('queued-input-bar'),
       mainAxisSize: MainAxisSize.min,
       children: [
+        for (final input in controller.acceptedSteers)
+          ComposerStatusBar(
+            key: ValueKey('accepted-steer-${input['id']}'),
+            icon: Icons.hourglass_top_rounded,
+            title: controller.activeTurnId == input['turnId']
+                ? '补充已提交 · Codex 自动择机处理'
+                : '补充已提交 · 等待同步确认',
+            subtitle: input['text'] as String? ?? '',
+            actions: [
+              IconButton(
+                tooltip: '同步补充指令状态',
+                onPressed: controller.loading ? null : controller.reload,
+                icon: const Icon(Icons.refresh, size: 18),
+              ),
+            ],
+          ),
         if (controller.queueError != null)
           ComposerStatusBar(
             icon: Icons.error_outline,

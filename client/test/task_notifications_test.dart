@@ -73,6 +73,108 @@ TaskNotice notice(int number, {String? thread}) => TaskNotice(
 
 void main() {
   testWidgets(
+    'notification_dialog_refreshes_reconnected_service_and_offers_retry',
+    (tester) async {
+      final platform = FixtureNotifications()
+        ..value = const TaskNotificationSettings(
+          platform: 'android',
+          permission: 'granted',
+          enabled: true,
+          connection: 'reconnecting',
+          error: '通知连接超时',
+        );
+      final c = TaskNotificationController(platform: platform);
+      addTearDown(c.dispose);
+      await c.configure(
+        Uri.parse('http://192.168.1.20:47821'),
+        'fixture',
+        true,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showTaskNotificationSettings(context, c),
+                child: const Text('设置'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('提醒连接中断，正在重连…'), findsOneWidget);
+      expect(find.text('通知连接超时'), findsOneWidget);
+      await tester.tap(find.text('立即重连'));
+      await tester.pumpAndSettle();
+      expect(platform.enables, 1);
+      expect(find.text('提醒连接正常'), findsOneWidget);
+      platform.value = const TaskNotificationSettings(
+        platform: 'android',
+        permission: 'granted',
+        enabled: true,
+        connection: 'reconnecting',
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(find.text('提醒连接中断，正在重连…'), findsOneWidget);
+      platform.value = const TaskNotificationSettings(
+        platform: 'android',
+        permission: 'granted',
+        enabled: true,
+        connection: 'connected',
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(find.text('提醒连接正常'), findsOneWidget);
+      expect(find.text('通知连接超时'), findsNothing);
+      await tester.tap(find.text('完成'));
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'question_notice_shows_preview_opens_thread_and_clears_only_answered_question',
+    (tester) async {
+      final c = TaskNotificationController(platform: FixtureNotifications());
+      addTearDown(c.dispose);
+      TaskNotice question(String id, {bool resolved = false}) =>
+          TaskNotice.fromJson({
+            'id': '$id:${resolved ? 'resolved' : 'question'}',
+            'threadId': 'question-thread',
+            'questionId': id,
+            'status': resolved ? 'resolved' : 'question',
+            if (!resolved) 'preview': id == 'one' ? '先支持哪个平台？' : '还有什么要求？',
+          });
+      c.receive(question('one'));
+      c.receive(question('two'));
+      c.receive(question('one')); // reconnect replay
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 320,
+              child: TaskNotificationToasts(controller: c),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('先支持哪个平台？'), findsOneWidget);
+      expect(find.text('还有什么要求？'), findsOneWidget);
+      expect(find.text('Codex 本轮任务已完成'), findsNothing);
+      c.receive(question('two', resolved: true));
+      await tester.pump();
+      expect(find.text('还有什么要求？'), findsNothing);
+      expect(find.text('先支持哪个平台？'), findsOneWidget);
+      await tester.tap(find.text('先支持哪个平台？'));
+      expect(c.openedThread.value, 'question-thread');
+      expect(c.notices, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'system_notification_click_schedules_idle_ui_and_opens_matching_thread',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -116,6 +218,15 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.binding.hasScheduledFrame, isFalse);
+      final context = tester.element(find.byType(HomeScreen));
+      unawaited(
+        showDialog<void>(
+          context: context,
+          builder: (_) => const AlertDialog(title: Text('遮挡会话的对话框')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('遮挡会话的对话框'), findsOneWidget);
       platform.onOpenThread?.call('notice-target');
       expect(tester.binding.hasScheduledFrame, isTrue);
       await tester.pumpAndSettle();
@@ -123,6 +234,7 @@ void main() {
       expect(controller.conversation.threadId, 'notice-target');
       expect(notifications.openedThread.value, isNull);
       expect(find.text('Notification target'), findsOneWidget);
+      expect(find.text('遮挡会话的对话框'), findsNothing);
     },
   );
 

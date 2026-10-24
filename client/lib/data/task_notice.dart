@@ -3,16 +3,32 @@ class TaskNotice {
     required this.id,
     required this.threadId,
     required this.failed,
+    this.questionId,
+    this.preview,
+    this.resolved = false,
   });
   factory TaskNotice.fromJson(Map<String, dynamic> value) => TaskNotice(
     id: value['id'] as String,
     threadId: value['threadId'] as String,
     failed: value['status'] == 'failed',
+    questionId: value['questionId'] as String?,
+    preview: value['preview'] as String?,
+    resolved: value['status'] == 'resolved',
   );
   final String id;
   final String threadId;
   final bool failed;
-  String get title => failed ? 'Codex 本轮任务失败' : 'Codex 本轮任务已完成';
+  final String? questionId, preview;
+  final bool resolved;
+  bool get question => questionId != null;
+  String get key =>
+      question ? 'question:$threadId:$questionId' : 'task:$threadId';
+  String get title => question
+      ? 'Codex 有问题请你回答'
+      : failed
+      ? 'Codex 本轮任务失败'
+      : 'Codex 本轮任务已完成';
+  String get body => preview ?? '点按查看对应会话';
 }
 
 class TaskNotificationSettings {

@@ -86,6 +86,8 @@ class ConversationController extends ChangeNotifier {
   final Set<String> _answeredQuestionIds = {};
   List<JsonMap> files = [];
   bool queueSupported = false;
+  bool automaticInputSupported = false;
+  List<JsonMap> acceptedSteers = [];
   List<JsonMap> queuedInputs = [];
   JsonMap? pendingQueueAction;
   bool queueActionBusy = false;
@@ -229,6 +231,11 @@ class ConversationController extends ChangeNotifier {
       await preferences.setString(_draftKey(threadId!), draft);
     }
     threadId = id;
+    acceptedSteers = asMaps(
+      jsonDecode(
+        preferences.getString('${_draftKey(id)}:accepted-steers') ?? '[]',
+      ),
+    );
     queuedInputs = [];
     queueError = null;
     _queueRevision++;
@@ -383,6 +390,7 @@ class ConversationController extends ChangeNotifier {
     final added = <ConversationItem>[];
     for (final entry in entries.reversed) {
       final item = asMap(entry['item']);
+      _consumeAcceptedSteer(item);
       _readQuestionReplies(item);
       final id = item['id'] as String?;
       if (id == null) continue;
@@ -504,6 +512,7 @@ class ConversationController extends ChangeNotifier {
       case 'item/started':
       case 'item/completed':
         final data = asMap(parameters['item']);
+        _consumeAcceptedSteer(data);
         _readQuestionReplies(data);
         final id = data['id'] as String?;
         if (id == null) break;
@@ -685,8 +694,9 @@ class ConversationController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> send() async {
+  Future<bool> send({bool queue = false}) async {
     if (!canSend || threadId == null) return false;
+    if (queue && (!queueSupported || goalMode)) return false;
     if (goalMode) return _sendGoal();
     final id = threadId!;
     final session = _sessionGeneration;
@@ -699,10 +709,12 @@ class ConversationController extends ChangeNotifier {
       if (activeTurnId == null && model != null) 'model': model,
       if (activeTurnId == null && effort != null) 'effort': effort,
     };
-    final path = activeTurnId == null
-        ? '/api/threads/$id/turns'
-        : queueSupported
+    final path = queue
         ? '/api/threads/$id/queue'
+        : automaticInputSupported
+        ? '/api/threads/$id/input'
+        : activeTurnId == null
+        ? '/api/threads/$id/turns'
         : '/api/threads/$id/turns/$activeTurnId/steer';
     pendingRequestId = requestId;
     _pendingBody = body;
@@ -711,10 +723,11 @@ class ConversationController extends ChangeNotifier {
     sending = true;
     notifyListeners();
     try {
-      await api.request('POST', path, body: body);
+      final result = asMap(await api.request('POST', path, body: body));
       if (_disposed || session != _sessionGeneration || threadId != id) {
         return true;
       }
+      await _rememberAcceptedSteer(result);
       await _accepted(id);
       return true;
     } catch (error) {
@@ -839,6 +852,7 @@ class ConversationController extends ChangeNotifier {
       await api.request('GET', '/api/operations/$pendingRequestId'),
     );
     if (result['state'] == 'accepted') {
+      await _rememberAcceptedSteer(asMap(result['result']));
       await _accepted(_pendingThread!);
     } else if (result['state'] == 'failed') {
       uncertain = false;
@@ -848,6 +862,52 @@ class ConversationController extends ChangeNotifier {
       onError(const ApiError('提交结果仍未知。请检查最新消息；确认未执行后才能重新发送。'));
     }
     await reload();
+  }
+
+  Future<void> _rememberAcceptedSteer(JsonMap result) async {
+    final turn = result['turnId'] as String?;
+    final id = pendingRequestId;
+    final body = _pendingBody;
+    if (turn == null ||
+        id == null ||
+        body == null ||
+        _pendingPath?.endsWith('/queue') == true ||
+        items.any(
+          (item) => item.type == 'userMessage' && item.data['clientId'] == id,
+        ) ||
+        acceptedSteers.any((item) => item['id'] == id)) {
+      return;
+    }
+    final text = body['text'] as String? ?? '';
+    acceptedSteers.add({
+      'id': id,
+      'turnId': turn,
+      'text': text.isEmpty
+          ? '附件与引用'
+          : String.fromCharCodes(text.runes.take(240)),
+    });
+    if (acceptedSteers.length > 16) acceptedSteers.removeAt(0);
+    await _saveAcceptedSteers();
+  }
+
+  void _consumeAcceptedSteer(JsonMap item) {
+    if (item['type'] != 'userMessage' || item['clientId'] == null) return;
+    final count = acceptedSteers.length;
+    acceptedSteers.removeWhere((pending) => pending['id'] == item['clientId']);
+    if (count != acceptedSteers.length) unawaited(_saveAcceptedSteers());
+  }
+
+  Future<void> _saveAcceptedSteers() async {
+    final id = threadId;
+    if (id == null) return;
+    final key = '${_draftKey(id)}:accepted-steers';
+    final value = jsonEncode(acceptedSteers);
+    final preferences = await SharedPreferences.getInstance();
+    if (value == '[]') {
+      await preferences.remove(key);
+    } else {
+      await preferences.setString(key, value);
+    }
   }
 
   Future<void> retrySameRequest() async {
@@ -1352,6 +1412,8 @@ class ConversationController extends ChangeNotifier {
     _queueRevision++;
     _queueTimer?.cancel();
     queueSupported = false;
+    automaticInputSupported = false;
+    acceptedSteers = [];
     queuedInputs = [];
     pendingQueueAction = null;
     queueActionBusy = false;

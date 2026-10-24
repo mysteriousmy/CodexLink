@@ -88,11 +88,11 @@ class MainActivity : FlutterActivity() {
     private fun enable() {
         if (!enabledPermission()) return
         store.preferences.edit().putBoolean("enabled", true).remove("error").apply()
-        startIfEnabled()
+        startIfEnabled(reconnect = true)
     }
-    private fun startIfEnabled() {
+    private fun startIfEnabled(reconnect: Boolean = false) {
         if (!resumed || !store.preferences.getBoolean("enabled", false) || !enabledPermission()) return
-        val intent = Intent(this, TaskNotificationService::class.java)
+        val intent = Intent(this, TaskNotificationService::class.java).putExtra("reconnect", reconnect)
         TaskNotificationService.preparingToStart()
         try {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)

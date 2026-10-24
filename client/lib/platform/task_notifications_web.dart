@@ -90,7 +90,7 @@ class WebTaskNotifications extends TaskNotificationPlatform {
     source.onerror = ((web.Event _) {
       if (generation == _generation) _connection = 'reconnecting';
     }).toJS;
-    for (final type in ['task', 'ready']) {
+    for (final type in ['task', 'question', 'ready']) {
       source.addEventListener(
         type,
         ((web.MessageEvent event) {
@@ -125,14 +125,24 @@ class WebTaskNotifications extends TaskNotificationPlatform {
       final frame = _queue.removeAt(0);
       try {
         final data = jsonDecode(frame.data) as Map<String, dynamic>;
-        if (frame.type == 'task') {
+        if (frame.type == 'task' || frame.type == 'question') {
           final notice = TaskNotice.fromJson(data);
-          final shown =
-              _enabled &&
-              _permission == 'granted' &&
-              await _show(notice, generation);
+          final seen = List<String>.from(_saved['seen'] as List? ?? []);
+          if (notice.resolved) {
+            await _closeNotice(notice, generation);
+            if (generation != _generation) return;
+            onNotice?.call(notice);
+          } else if (!seen.contains(notice.id)) {
+            final shown =
+                _enabled &&
+                _permission == 'granted' &&
+                await _show(notice, generation);
+            if (generation != _generation) return;
+            if (!shown) onNotice?.call(notice);
+          }
           if (generation != _generation) return;
-          if (!shown) onNotice?.call(notice);
+          if (!seen.contains(notice.id)) seen.add(notice.id);
+          _saved['seen'] = seen.skip(max(0, seen.length - 256)).toList();
         } else if (data['gap'] == true) {
           onWarning?.call('部分任务提醒已过期，请打开会话查看最新状态');
         }
@@ -151,6 +161,23 @@ class WebTaskNotifications extends TaskNotificationPlatform {
         onWarning?.call('任务通知数据无法读取，请刷新页面重试');
         return;
       }
+    }
+  }
+
+  Future<void> _closeNotice(TaskNotice notice, int generation) async {
+    _transient.remove(notice.key)?.close();
+    try {
+      final registration = await (_registration ??= _worker());
+      final notifications =
+          (await registration.getNotifications().toDart).toDart;
+      if (generation != _generation) return;
+      for (final item in notifications.where(
+        (item) => item.tag == 'codexlink:${notice.key}',
+      )) {
+        item.close();
+      }
+    } catch (_) {
+      _registration = null;
     }
   }
 
@@ -185,7 +212,7 @@ class WebTaskNotifications extends TaskNotificationPlatform {
       final registration = await (_registration ??= _worker());
       if (generation != _generation) return true;
       final existing = (await registration.getNotifications().toDart).toDart
-          .where((item) => item.tag != 'codexlink:${notice.threadId}')
+          .where((item) => item.tag != 'codexlink:${notice.key}')
           .toList();
       if (generation != _generation) return true;
       for (final item in existing.take(max(0, existing.length - 19))) {
@@ -195,8 +222,8 @@ class WebTaskNotifications extends TaskNotificationPlatform {
           .showNotification(
             notice.title,
             web.NotificationOptions(
-              body: '点按查看对应会话',
-              tag: 'codexlink:${notice.threadId}',
+              body: notice.body,
+              tag: 'codexlink:${notice.key}',
               icon: '/icons/Icon-192.png',
               data: {'threadId': notice.threadId, 'session': _identity}.jsify(),
             ),
@@ -208,21 +235,21 @@ class WebTaskNotifications extends TaskNotificationPlatform {
       // Desktop browsers without worker support may still support Notification.
       try {
         if (generation != _generation) return true;
-        _transient.remove(notice.threadId)?.close();
+        _transient.remove(notice.key)?.close();
         while (_transient.length >= 20) {
           _transient.remove(_transient.keys.first)?.close();
         }
         final notification = web.Notification(
           notice.title,
           web.NotificationOptions(
-            body: '点按查看对应会话',
-            tag: 'codexlink:${notice.threadId}',
+            body: notice.body,
+            tag: 'codexlink:${notice.key}',
           ),
         );
-        _transient[notice.threadId] = notification;
+        _transient[notice.key] = notification;
         notification.onclose = ((web.Event _) {
-          if (identical(_transient[notice.threadId], notification)) {
-            _transient.remove(notice.threadId);
+          if (identical(_transient[notice.key], notification)) {
+            _transient.remove(notice.key);
           }
         }).toJS;
         notification.onclick = ((web.Event _) {

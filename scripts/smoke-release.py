@@ -115,8 +115,12 @@ def main():
                 pending = approvals[0]
                 assert pending['method'] == 'item/tool/requestUserInput'
                 assert pending['params']['questions'][0]['options'][0]['label'] == '分步完成（推荐）'
+                question_notice = next(n for n in json.loads(request(path)[2])['items'] if n['status'] == 'question')
+                assert question_notice['threadId'] == thread and question_notice['questionId'] == 'native:' + pending['id']
+                assert '选择实现方式？' in question_notice['preview'] and '输入测试用私密回答' not in question_notice['preview']
                 result = {'answers': {'mode':{'answers':['分步完成（推荐）']}, 'scope':{'answers':['手机和网页']}, 'secret':{'answers':['fixture-secret']}}}
                 assert request('/api/approvals/' + pending['id'], {'result':result})[0] == 204
+                assert any(n['status'] == 'resolved' and n.get('questionId') == question_notice['questionId'] for n in json.loads(request(path)[2])['items'])
                 deadline = time.monotonic() + 10
                 while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
                     if time.monotonic() > deadline: raise TimeoutError('Answered question did not complete')
@@ -125,6 +129,10 @@ def main():
                 snapshot = json.loads(request(f'/api/threads/{thread}')[2])
                 history = json.loads(request(f'/api/threads/{thread}/items')[2])['data']
                 question = next(v['item'] for v in history if v['item'].get('questions') and v['item'].get('delivery') == 'async')
+                deadline = time.monotonic() + 10
+                while len([n for n in json.loads(request(path)[2])['items'] if n['status'] == 'question']) != 2:
+                    if time.monotonic() > deadline: raise TimeoutError('Async question notifications missing')
+                    time.sleep(.05)
                 answer = {'questionItemId':json.dumps(['request_user_input_async', question['id'], 0], separators=(',', ':')),
                     'question':question['questions'][0]['title'], 'answer':'简洁（推荐）'}
                 reply_text = '<send_user_message_question_reply>' + json.dumps([answer], ensure_ascii=False) + '</send_user_message_question_reply>'
@@ -132,12 +140,14 @@ def main():
                     {'requestId':str(uuid.uuid4()), 'text':reply_text})[0] == 200
                 history = json.loads(request(f'/api/threads/{thread}/items')[2])['data']
                 assert any(v['item'].get('content') == [{'type':'text', 'text':reply_text}] for v in history)
+                assert len([n for n in json.loads(request(path)[2])['items'] if n['status'] == 'question']) == 1
                 deadline = time.monotonic() + 10
                 while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
                     if time.monotonic() > deadline: raise TimeoutError('Asynchronous question did not complete')
                     time.sleep(.05)
                 assert json.loads(request('/api/status')[2])['queuedMessages'] is True
-                turn = json.loads(request(f'/api/threads/{thread}/turns', {'requestId':str(uuid.uuid4()), 'text':'hold'})[2])['turn']['id']
+                assert json.loads(request('/api/status')[2])['automaticInput'] is True
+                turn = json.loads(request(f'/api/threads/{thread}/input', {'requestId':str(uuid.uuid4()), 'text':'hold'})[2])['turn']['id']
                 queued = json.loads(request(f'/api/threads/{thread}/queue', {'requestId':str(uuid.uuid4()), 'text':'queued 中文'})[2])['submission']
                 assert json.loads(request(f'/api/threads/{thread}/queue')[2])['data'] == [queued]
                 withdrawn = json.loads(request(f"/api/threads/{thread}/queue/{queued['id']}/withdraw", {'requestId':str(uuid.uuid4())})[2])
@@ -149,6 +159,13 @@ def main():
                 deadline = time.monotonic() + 10
                 while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
                     if time.monotonic() > deadline: raise TimeoutError('Queued steer did not complete')
+                    time.sleep(.05)
+                turn = json.loads(request(f'/api/threads/{thread}/input', {'requestId':str(uuid.uuid4()), 'text':'hold'})[2])['turn']['id']
+                automatic = json.loads(request(f'/api/threads/{thread}/input', {'requestId':str(uuid.uuid4()), 'text':'automatic steer'})[2])
+                assert automatic['turnId'] == turn
+                deadline = time.monotonic() + 10
+                while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
+                    if time.monotonic() > deadline: raise TimeoutError('Automatic steer did not complete')
                     time.sleep(.05)
                 assert json.loads(request('/api/status')[2])['threadActions'] is True
                 request(f'/api/threads/{thread}/turns', {'requestId':str(uuid.uuid4()), 'text':'hold'})
@@ -173,7 +190,7 @@ def main():
                 assert json.loads(request('/api/threads?archived=true')[2])['data'][0]['id'] == thread
                 request(f'/api/threads/{thread}/unarchive', {})
                 assert json.loads(request(f'/api/threads/{thread}/items')[2])['data'] == history
-                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission, notification JSON/SSE, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now, thread close/unload/reopen/archive/restore')
+                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, automatic start/steer, notification JSON/SSE and question preview/resolution, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now, thread close/unload/reopen/archive/restore')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact
                 # its generated gateway token before exposing startup failures.

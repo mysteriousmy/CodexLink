@@ -308,7 +308,7 @@ def call(method, p):
                     }
                 )
             )
-        elif text in ['questions', 'questions nonblocking', 'questions overlap']:
+        elif text in ['questions', 'questions nonblocking', 'questions overlap', 'questions long preview']:
             rid = 'question-' + t['id']
             approvals[rid] = tid
             questions = [
@@ -319,16 +319,20 @@ def call(method, p):
                     {'label':'手机', 'description':'优先验证移动端。'}, {'label':'网页', 'description':'优先验证浏览器。'}]},
                 {'id':'secret', 'header':'私密输入', 'question':'输入测试用私密回答', 'isOther':False, 'isSecret':True, 'options':None},
             ]
+            if text == 'questions long preview': questions[0]['question'] = '很长的问题' * 100
             def ask():
                 emit({'id':rid, 'method':'item/tool/requestUserInput', 'params':{'threadId':tid, 'turnId':t['id'], 'itemId':'questions', 'questions':questions, 'isBlocking':text != 'questions nonblocking', 'autoResolutionMs':None}})
                 if text == 'questions overlap': event('turn/completed', threadId=tid, turn={'id':'older-turn', 'status':'completed'})
             later(ask)
-        elif text == 'async questions':
+        elif text in ['async questions', 'async questions duplicate']:
             item = {'id':'async-' + t['id'], 'type':'agentMessage', 'text':'', 'phase':'commentary', 'delivery':'async', 'questions':[
                 {'title':'需要哪种界面风格？', 'options':['简洁（推荐）', '信息丰富']},
                 {'title':'还有什么要求？', 'options':None}]}
             t['items'].append(item)
-            later(lambda: event('item/completed', threadId=tid, turnId=t['id'], item=item))
+            def async_ask():
+                event('item/completed', threadId=tid, turnId=t['id'], item=item)
+                if text.endswith('duplicate'): event('item/completed', threadId=tid, turnId=t['id'], item=item)
+            later(async_ask)
         elif text == "flood":
 
             def flood():

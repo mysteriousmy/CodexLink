@@ -151,6 +151,7 @@ class AppController extends ChangeNotifier {
   Future<void> _loadSession() async {
     status = asMap(await api.request('GET', '/api/status'));
     conversation.queueSupported = status['queuedMessages'] == true;
+    conversation.automaticInputSupported = status['automaticInput'] == true;
     authenticated = true;
     await _configureNotifications();
     if (status['codex'] == 'ready') {
@@ -570,6 +571,7 @@ class AppController extends ChangeNotifier {
       if (!_currentConnection(generation)) return;
       status = currentStatus;
       conversation.queueSupported = status['queuedMessages'] == true;
+      conversation.automaticInputSupported = status['automaticInput'] == true;
       unawaited(_configureNotifications());
       await conversation.reload();
       await loadThreads();
@@ -681,6 +683,8 @@ class AppController extends ChangeNotifier {
           if (!_currentConnection(generation)) return;
           status = currentStatus;
           conversation.queueSupported = status['queuedMessages'] == true;
+          conversation.automaticInputSupported =
+              status['automaticInput'] == true;
           unawaited(_configureNotifications());
           await connectEvents();
         } catch (exception) {

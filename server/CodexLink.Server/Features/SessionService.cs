@@ -56,7 +56,10 @@ public sealed partial class SessionService
         switch (method)
         {
             case "turn/started": session.ActiveTurn = parameters?["turn"].String("id"); session.TurnEventVersion++; break;
-            case "turn/completed": session.ActiveTurn = null; session.TurnEventVersion++; break;
+            case "turn/completed":
+                if (session.ActiveTurn == parameters?["turn"].String("id")) session.ActiveTurn = null;
+                session.TurnEventVersion++;
+                break;
             case "thread/status/changed":
                 if (parameters?["status"].String("type") is "idle" or "notLoaded")
                 {
@@ -300,11 +303,11 @@ public sealed partial class SessionService
         return result;
     }
 
-    public Task<JsonNode?> SendAsync(string device, string id, string? expectedTurn, SendMessageRequest request)
+    public Task<JsonNode?> SendAsync(string device, string id, string? expectedTurn, SendMessageRequest request, bool automatic = false)
     {
         if (request.Text is null || request.Text.Length > 200_000 || (string.IsNullOrWhiteSpace(request.Text) && (request.AttachmentIds?.Length ?? 0) == 0 && (request.References?.Length ?? 0) == 0))
             throw new ApiException(400, "invalid_message", "请输入消息或添加附件；正文最多 200,000 字符。");
-        var fingerprint = id + ":" + expectedTurn + ":" + JsonSerializer.Serialize(request, JsonContext.Default.SendMessageRequest);
+        var fingerprint = id + ":" + (automatic ? "auto" : expectedTurn) + ":" + JsonSerializer.Serialize(request, JsonContext.Default.SendMessageRequest);
         return _operations.RunAsync(device, request.RequestId, fingerprint, async () =>
         {
             await AuthorizeAsync(id);
@@ -316,6 +319,9 @@ public sealed partial class SessionService
             {
                 await ResumeInsideLockAsync(id, session);
                 if (session.ControlReason is not null) throw new ApiException(409, "thread_read_only", session.ControlReason);
+                // Choose against the subscribed runtime state under the same
+                // gate as submission. Codex controls when a steer is consumed.
+                if (automatic) expectedTurn = session.ActiveTurn;
                 if (expectedTurn is null && session.ActiveTurn is not null) throw new ApiException(409, "thread_busy", "任务正在执行，请使用补充指令。");
                 if (expectedTurn is not null && expectedTurn != session.ActiveTurn) throw new ApiException(409, "turn_changed", "当前轮次已结束或改变。草稿已保留，请核对后重新发送。");
                 // Steering an already-running thread must remain available even

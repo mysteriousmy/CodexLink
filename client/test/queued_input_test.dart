@@ -35,6 +35,119 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test(
+    'automatic_send_uses_runtime_selection_and_tracks_native_consumption',
+    () async {
+      final posts = <http.Request>[];
+      final c =
+          ConversationController(
+              ApiClient(
+                client: MockClient((r) async {
+                  if (r.method == 'GET') return json({'data': []});
+                  posts.add(r);
+                  return json({'turnId': 'native-running'});
+                }),
+              ),
+              onError: (e) => fail('$e'),
+              onTurnFinished: () {},
+            )
+            ..threadId = 't'
+            ..automaticInputSupported = true
+            ..queueSupported = true
+            ..draft = '自动选择发送时机';
+      addTearDown(c.dispose);
+      // The UI may still look idle while the runtime has an active turn.
+      expect(await c.send(), isTrue);
+      expect(posts.single.url.path, '/api/threads/t/input');
+      final id = jsonDecode(posts.single.body)['requestId'];
+      expect(c.acceptedSteers.single['id'], id);
+      expect(c.draft, isEmpty);
+      c.handleEvent('item/started', {
+        'threadId': 't',
+        'turnId': 'native-running',
+        'item': {
+          'type': 'userMessage',
+          'id': 'accepted-item',
+          'clientId': id,
+          'content': [],
+        },
+      });
+      expect(c.acceptedSteers, isEmpty);
+      c.activeTurnId = 'native-running';
+      c.draft = '手动排到本轮结束';
+      expect(await c.send(queue: true), isTrue);
+      expect(posts.last.url.path, '/api/threads/t/queue');
+      expect(c.acceptedSteers, isEmpty);
+    },
+  );
+
+  test('automatic_steer_acceptance_before_response_and_restart_do_not_leave_stale_bar', () async {
+    late ConversationController c;
+    var immediate = true;
+    JsonMap? historyItem;
+    ApiClient api() => ApiClient(
+      client: MockClient((r) async {
+        if (r.method == 'POST') {
+          final id = jsonDecode(r.body)['requestId'];
+          final data = {
+            'type': 'userMessage',
+            'id': 'message-$id',
+            'clientId': id,
+            'content': [],
+          };
+          if (immediate) {
+            c.handleEvent('item/started', {
+              'threadId': 't',
+              'turnId': 'running',
+              'item': data,
+            });
+          } else {
+            historyItem = {'turnId': 'running', 'item': data};
+          }
+          return json({'turnId': 'running'});
+        }
+        if (r.url.path.endsWith('/items')) {
+          return json({
+            'data': historyItem == null ? [] : [historyItem],
+          });
+        }
+        return json({
+          'thread': {'id': 't'},
+          'activeTurnId': 'running',
+        });
+      }),
+    );
+    c =
+        ConversationController(
+            api(),
+            onError: (e) => fail('$e'),
+            onTurnFinished: () {},
+          )
+          ..threadId = 't'
+          ..activeTurnId = 'running'
+          ..automaticInputSupported = true
+          ..draft = 'already consumed';
+    expect(await c.send(), isTrue);
+    expect(c.acceptedSteers, isEmpty);
+    immediate = false;
+    c.draft = 'pending until model resumes';
+    expect(await c.send(), isTrue);
+    expect(c.acceptedSteers, hasLength(1));
+    c.dispose();
+    final restored = ConversationController(
+      api(),
+      onError: (e) => fail('$e'),
+      onTurnFinished: () {},
+    );
+    addTearDown(restored.dispose);
+    await restored.select('t');
+    expect(restored.acceptedSteers, isEmpty);
+    expect(
+      restored.items.single.data['clientId'],
+      historyItem!['item']['clientId'],
+    );
+  });
+
+  test(
     'running_messages_queue_and_withdraw_merge_draft_files_and_references',
     () async {
       final posts = <http.Request>[];
@@ -62,7 +175,7 @@ void main() {
             ..queueSupported = true
             ..draft = '保留待发送内容';
       addTearDown(c.dispose);
-      expect(await c.send(), isTrue);
+      expect(await c.send(queue: true), isTrue);
       await c.refreshQueue();
       expect(posts.single.url.path, '/api/threads/t/queue');
       expect(c.draft, isEmpty);
@@ -318,7 +431,7 @@ void main() {
       'existing draft\n保留待发送内容',
     );
     await t.enterText(field, 'existing draft\n保留待发送内容\n继续编辑');
-    await t.tap(find.text('补充'));
+    await t.tap(find.byTooltip('本轮结束后发送'));
     await t.pumpAndSettle();
     expect(posts.last.url.path, '/api/threads/t/queue');
     expect(
@@ -348,6 +461,13 @@ void main() {
         ..thread = {'preview': '三栏布局'}
         ..activeTurnId = 'running'
         ..queueSupported = true
+        ..acceptedSteers = [
+          {
+            'id': 'accepted-preview',
+            'turnId': 'running',
+            'text': '这条补充等待 Codex 处理',
+          },
+        ]
         ..goal = {'objective': '同时保留三个提示栏', 'status': 'active'}
         ..queuedInputs = [queued(), queued(id: 'second')];
       c.items.add(
@@ -385,6 +505,10 @@ void main() {
         expect(find.byKey(const ValueKey('active-goal-bar')), findsOneWidget);
         expect(find.byKey(const ValueKey('question-bar')), findsOneWidget);
         expect(find.byKey(const ValueKey('queued-input-bar')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('accepted-steer-accepted-preview')),
+          findsOneWidget,
+        );
         final field = find.descendant(
           of: find.byType(Composer),
           matching: find.byType(TextField),
@@ -395,6 +519,9 @@ void main() {
         await t.ensureVisible(find.byTooltip('撤回').last);
         await t.pump(const Duration(milliseconds: 200));
         expect(find.byTooltip('撤回').last.hitTestable(), findsOneWidget);
+        await t.ensureVisible(find.byTooltip('同步补充指令状态'));
+        await t.pump(const Duration(milliseconds: 200));
+        expect(find.byTooltip('同步补充指令状态').hitTestable(), findsOneWidget);
         expect(
           t.getRect(find.byKey(const ValueKey('composer-status-bars'))).bottom,
           lessThanOrEqualTo(t.getRect(find.byType(Composer)).top + .1),

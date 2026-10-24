@@ -1023,9 +1023,7 @@ class _ComposerState extends State<Composer> {
                       ? '描述目标，发送后开始执行…'
                       : controller.activeTurnId == null
                       ? '描述任务 · / 指令 · @ 文件'
-                      : controller.queueSupported
-                      ? '补充内容，发送后排队…'
-                      : '补充当前任务的方向…',
+                      : '补充当前任务，Codex 会自动择机处理…',
                   filled: false,
                   counterText: '',
                   contentPadding: const EdgeInsets.symmetric(
@@ -1114,6 +1112,22 @@ class _ComposerState extends State<Composer> {
                             }
                           },
                           icon: const Icon(Icons.stop_circle_outlined),
+                        ),
+                      if (controller.activeTurnId != null &&
+                          controller.queueSupported &&
+                          !controller.goalMode)
+                        IconButton(
+                          tooltip: '本轮结束后发送',
+                          onPressed:
+                              widget.appController.usable &&
+                                  controller.canSend &&
+                                  _commandQuery.isEmpty
+                              ? () => controller.send(queue: true)
+                              : null,
+                          icon: const Icon(
+                            Icons.playlist_add_rounded,
+                            size: 21,
+                          ),
                         ),
                       FilledButton.icon(
                         onPressed:
