@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('gateway', type=Path)
     parser.add_argument('codex', type=Path)
+    parser.add_argument('--systemd-user', action='store_true', help='Exercise a transient Linux user unit with KillMode=process')
     args = parser.parse_args()
     gateway = args.gateway.resolve()
     codex = args.codex.resolve()
@@ -57,11 +58,28 @@ def main():
             raise TimeoutError('Gateway HTTP startup timed out')
 
         process = None
+        unit = 'codexlink-smoke-' + secrets.token_hex(4)
+        def launch(log):
+            if args.systemd_user:
+                return subprocess.Popen(['systemd-run', '--user', '--collect', '--wait', '--pipe',
+                    '--unit=' + unit, '--property=KillMode=process', '--working-directory=' + str(root),
+                    '--setenv=CODEX_HOME=' + str(home), '--setenv=CODEXLINK_DATA=' + str(data), *command],
+                    env=env, cwd=root, stdout=log, stderr=log)
+            return subprocess.Popen(command, env=env, cwd=root, stdout=log, stderr=log)
+
+        def stop_gateway(process):
+            if args.systemd_user:
+                subprocess.run(['systemctl', '--user', 'stop', unit], check=True, capture_output=True, timeout=20)
+            else:
+                process.terminate()
+            process.wait(20)
+
         try:
             assert daemon('version').returncode != 0, 'Isolated daemon was unexpectedly running'
             with (root / 'gateway.log').open('w') as log:
                 for cycle in range(2):
-                    process = subprocess.Popen(command, env=env, cwd=root, stdout=log, stderr=log)
+                    unit = 'codexlink-smoke-' + secrets.token_hex(4)
+                    process = launch(log)
                     state = await_gateway(process)
                     assert state['codex'] == 'idle' and state['codexTransport'] is None
                     if cycle == 0:
@@ -70,14 +88,18 @@ def main():
                     assert state == {'codex':'ready', 'codexTransport':'shared'}, state
                     state = request('/api/status')
                     assert state['codex'] == 'ready' and state['codexTransport'] == 'shared', state
-                    process.terminate(); process.wait(20); process = None
+                    stop_gateway(process); process = None
                     running = daemon('version')
                     assert running.returncode == 0, running.stderr
                     assert json.loads(running.stdout)['status'] == 'running'
                     print(f'Cycle {cycle + 1}: idle startup -> ready/shared -> gateway exit -> daemon still running', flush=True)
+        except BaseException:
+            logfile = root / 'gateway.log'
+            if logfile.exists(): print(logfile.read_text(errors='replace').replace(token, '[redacted]')[-6000:], flush=True)
+            raise
         finally:
             if process and process.poll() is None:
-                process.terminate(); process.wait(20)
+                stop_gateway(process)
             stopped = daemon('stop')
             if stopped.returncode: raise RuntimeError('Isolated daemon cleanup failed: ' + stopped.stderr)
         print('Real shared-daemon smoke passed; isolated daemon stopped.', flush=True)

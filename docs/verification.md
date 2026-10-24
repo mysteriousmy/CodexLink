@@ -349,3 +349,5 @@ Flutter 全套 **112 项**通过，Chrome 交互回归 **44 项**通过，等待
 跨平台发布包运行检查另记录实际 CI 结果；本机 Linux 验证不代表 Windows 实机验证，Widget/Chrome 测试不代表物理手机触摸验收。
 
 Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试（96.305 秒），包含客户端断开时共享启动继续、冷启动失败重试及已有共享服务复用。测试使用隔离的假 Codex，真实 daemon 生命周期另按上述脚本验证。
+
+额外通过 Linux 用户级 transient systemd 单元实测（`smoke-daemon.py --systemd-user`）：daemon 由网关在该单元内首次拉起，停止使用 KillMode=process 的网关单元后 daemon 仍可查询并被第二个网关连接；测试结束仅清理独立 CODEX_HOME 中的 daemon，临时单元自动回收。

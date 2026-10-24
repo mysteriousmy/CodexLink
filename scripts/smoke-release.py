@@ -194,7 +194,7 @@ def main():
                 assert json.loads(request('/api/threads?archived=true')[2])['data'][0]['id'] == thread
                 request(f'/api/threads/{thread}/unarchive', {})
                 assert json.loads(request(f'/api/threads/{thread}/items')[2])['data'] == history
-                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, automatic start/steer, notification JSON/SSE and question preview/resolution, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now, thread close/unload/reopen/archive/restore')
+                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, automatic idle-start/active-queue, notification JSON/SSE and question preview/resolution, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now, thread close/unload/reopen/archive/restore')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact
                 # its generated gateway token before exposing startup failures.
