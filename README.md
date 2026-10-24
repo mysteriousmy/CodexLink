@@ -74,6 +74,8 @@ flowchart LR
 
 The gateway stays idle at boot. Opening the client connects to an existing daemon or runs `codex app-server daemon start` once; health and notification checks do not start Codex. A startup failure is visible and can be retried by refreshing the session list. No Codex boot service or global settings are installed. Windows requires a current native Codex executable and the same non-elevated account used by Codex. Linux service templates use `KillMode=process` so shared work survives gateway restarts.
 
+Use a complete official Codex installation. Copying only the CLI executable is insufficient for daemon startup because its package manifest and companion tools are also required.
+
 The gateway has no business database and does not copy or read Codex's private conversation database/logs. It stores only its own configuration, token hashes, uploaded files and bounded preview/cache state and a small task-notification journal. Existing conversations are restored through official protocol calls. The preferred shared-daemon connection owns only its socket; closing CodexLink does not terminate that shared daemon.
 
 ## Download the right package
@@ -102,7 +104,7 @@ Linux packages use **musl with fully static native linking** (`linux-musl-x64` /
 
 Minimum Android version is determined by the pinned Flutter toolchain (currently Android 7.0 / API 24). The Intel build is **x86_64**, not legacy 32-bit x86; Flutter release mode does not support that legacy ABI. APKs are signed with the project's release certificate so subsequent official versions can update the same installation. Self-built APKs use your own private signing key.
 
-All four v0.1.7 server packages passed [native-platform smoke tests](https://github.com/mysteriousmy/CodexLink/actions/runs/40112034624), including automatic start/steer, question notification previews and dismissal, thread close/reopen/archive/restore, native input queues, permissions and embedded Web; both Linux architectures also passed the 72-test gateway contract suite. Tests use a fake Codex process. See the [verification record](docs/verification.md) for the scope and real-device limitations.
+All four v0.1.8 server packages passed [native-platform smoke tests](https://github.com/mysteriousmy/CodexLink/actions/runs/40118239914), including default input queues, send-now/withdrawal, question notifications, thread actions, permissions and embedded Web. Both Linux architectures also passed 77 gateway contract tests and real Codex 0.164.0 cold-start/reuse/lifetime checks. Windows package functionality uses a protocol test double: real daemon cold start remains unverified because the hosted runners prevent the official CLI from detaching its background process, even under a standard account. See the [verification record](docs/verification.md) for the exact scope and desktop validation command.
 
 Download `SHA256SUMS` alongside the assets. On Linux/macOS run `sha256sum -c SHA256SUMS` in a directory containing the downloaded files, or compare the specific file's hash. On Windows use `Get-FileHash .\<asset> -Algorithm SHA256` and compare it with the matching entry.
 

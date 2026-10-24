@@ -75,6 +75,8 @@ flowchart LR
 
 网关开机启动时保持待机，打开客户端后才连接已有 Codex 或执行 `codex app-server daemon start`。健康检查和后台通知不会启动 Codex；启动失败会显示原因，可刷新会话列表重试。不安装 Codex 开机服务，不修改其全局配置。Windows 使用当前原生 Codex 程序并以同一非管理员账号运行；Linux 服务模板使用 `KillMode=process`，避免网关重启连带终止共享任务。
 
+Codex 必须按官方方式完整安装；只复制 CLI 可执行文件不够，daemon 启动还需要包清单和配套程序。
+
 网关没有业务数据库，不复制或扫描 Codex 的私有会话数据库和日志。只保存自身配置、设备令牌摘要、上传附件与有界预览缓存；会话恢复走官方协议。连接共享 daemon 时只持有自己的连接，关闭网关不会结束该共享 daemon。
 
 ## 选择下载包
@@ -103,7 +105,7 @@ Linux 实际 RID 为 `linux-musl-x64` / `linux-musl-arm64`，OpenSSL 静态链�
 
 当前工具链最低支持 Android 7.0 / API 24。Intel 版本为 **x86_64**，Flutter release 不支持传统 32 位 x86 ABI。官方 APK 使用项目发布证书签名，后续版本可覆盖升级；自行编译会生成自己的私有签名密钥。
 
-v0.1.7 的四个服务端包已通过[原生平台运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40112034624)，包括自动 start/steer、提问通知摘要与清除、会话关闭/重开/归档/恢复、原生待发送队列、权限及内嵌网页；两个 Linux 架构另各通过 72 项网关契约测试。检查使用假 Codex，完整范围及真机限制见[验证记录](docs/verification.md)。
+v0.1.8 的四个服务端包已通过[原生平台功能检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40118239914)，包括默认队列、立即发送/撤回、问题通知、会话操作、权限及内嵌网页。两个 Linux 架构另各通过 77 项网关契约及真实 Codex 0.164.0 的冷启动、复用和后台存活检查。Windows 包的功能检查使用协议替身；真实 daemon 冷启动仍未验证，因为托管 CI 即使在普通账号下也禁止官方 CLI 脱离父进程启动后台服务。准确范围及桌面验证命令见[验证记录](docs/verification.md)。
 
 同时下载 `SHA256SUMS` 校验文件。Linux/macOS 可在包含下载文件的目录运行 `sha256sum -c SHA256SUMS`（未下载的文件会提示缺失），或单独比较目标文件摘要；Windows 用 `Get-FileHash .\文件名 -Algorithm SHA256` 对照对应条目。
 

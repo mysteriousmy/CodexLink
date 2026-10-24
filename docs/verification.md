@@ -346,8 +346,16 @@ Flutter 全套 **112 项**通过，Chrome 交互回归 **44 项**通过，等待
 - 默认补充在真实活动轮次下进入原生队列，提示条提供立即 steer 和撤回。`test_automatic_input_starts_idle_and_queues_active_turn_with_send_now`、`test_default_followup_can_withdraw_before_native_dispatch`、`test_automatic_input_unknown_queue_acceptance_never_retries_or_steers` 与 `default_followup_exposes_send_now_and_withdraw_before_submission` 覆盖默认提交、附件、按钮、去重及未知结果。立即 steer 不执行 turn/interrupt；旧版已接收补充不能追溯撤回。
 - Flutter analyze 无问题，117 项 Flutter 单元/Widget 测试通过。Linux systemd 模板和安装器改为 KillMode=process，使共享 daemon 不被网关 cgroup 停止流程连带终止；显式私有 stdio 仍由网关自行清理。
 
-跨平台发布包运行检查另记录实际 CI 结果；本机 Linux 验证不代表 Windows 实机验证，Widget/Chrome 测试不代表物理手机触摸验收。
+Widget/Chrome 测试不代表物理手机触摸验收，本次没有新增 Android 真机或模拟器触摸测试。
 
 Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试（96.305 秒），包含客户端断开时共享启动继续、冷启动失败重试及已有共享服务复用。测试使用隔离的假 Codex，真实 daemon 生命周期另按上述脚本验证。
 
 额外通过 Linux 用户级 transient systemd 单元实测（`smoke-daemon.py --systemd-user`）：daemon 由网关在该单元内首次拉起，停止使用 KillMode=process 的网关单元后 daemon 仍可查询并被第二个网关连接；测试结束仅清理独立 CODEX_HOME 中的 daemon，临时单元自动回收。
+
+四个服务端归档与四种 APK 的版本、摘要、ABI 和签名核对通过，Android 沿用 v0.1.7 的签名证书且版本号递增。九个远端 Release 资产的大小与 SHA-256 均匹配本地文件。已知私密值扫描覆盖 1,822 份源码、原生文件和归档内容，匹配 0；Git 历史的 Gitleaks 检查无发现。
+
+[v0.1.8 发布包检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40118239914)在 Linux x64/ARM64 与 Windows x64/ARM64 直接运行最终归档。四个平台的协议替身功能检查通过；Linux 两个架构另各通过 77 项契约及真实 Codex 0.164.0 的冷启动、复用和退出网关后存活验证。真实 CLI 使用完整官方包，包含包清单和配套程序；单独下载 CLI 二进制不能启动 daemon。
+
+**Windows 真实 daemon 冷启动未验证。** [实际失败记录](https://github.com/mysteriousmy/CodexLink/actions/runs/40118112344)确认测试账号非管理员，但处于禁止后台脱离的 Windows Job 中，官方 CLI 拒绝启动。改变测试启动方式后仍受宿主约束，因此不能以 Linux 通过或 Windows 协议替身通过代替真实生命周期验证。依据[同版本官方限制检查](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/app-server-daemon/src/backend/windows.rs)，相同命令还受账号权限和父进程约束影响。CI 默认明确记录这项未验证边界；`verify_windows_daemon=true` 保留严格诊断，失败不会被转成成功。
+
+可在 Windows 普通用户、允许后台进程脱离的终端运行 `python scripts/smoke-daemon.py <CodexLink.Server.exe> <完整安装中的codex.exe>` 进行桌面验证。脚本使用临时 CODEX_HOME、无账号和模型调用，并清理测试 daemon；它不会操作用户现有共享服务。
