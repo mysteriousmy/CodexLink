@@ -106,7 +106,7 @@ app.MapGet("/api/status", async (CodexRpc rpc, CancellationToken ct) =>
     if (rpc.Ready) account = await rpc.CallAsync("account/read", Json.Object(("refreshToken", false)), ct);
     return JsonResult(Json.Object(("gateway", "ready"), ("codex", rpc.State), ("codexVersion", rpc.Version),
         ("account", account), ("maxFileBytes", configuration.Value.MaxFileBytes), ("codexTransport", rpc.Shared ? "shared" : "stdio"),
-        ("taskNotifications", true)));
+        ("taskNotifications", true), ("queuedMessages", true)));
 });
 app.MapGet("/api/projects", async (ProjectCatalog projects, CancellationToken ct) => JsonResult(await projects.ListAsync(ct)));
 app.MapPost("/api/projects", async (CreateProjectRequest request, ProjectCatalog projects) => JsonResult(await projects.CreateAsync(request), 201));
@@ -153,6 +153,13 @@ app.MapGet("/api/media/{id}", async (string id, bool? download, MediaStore media
 });
 app.MapPost("/api/threads/{id}/turns", async (string id, SendMessageRequest request, SessionService sessions, HttpContext context) =>
     JsonResult(await sessions.SendAsync((string)context.Items["deviceId"]!, id, null, request)));
+app.MapGet("/api/threads/{id}/queue", async (string id, SessionService sessions, CancellationToken ct) => JsonResult(await sessions.QueueAsync(id, ct)));
+app.MapPost("/api/threads/{id}/queue", async (string id, SendMessageRequest request, SessionService sessions, HttpContext context) =>
+    JsonResult(await sessions.EnqueueAsync((string)context.Items["deviceId"]!, id, request)));
+app.MapPost("/api/threads/{id}/queue/{queuedId}/send", async (string id, string queuedId, QueueActionRequest request, SessionService sessions, HttpContext context) =>
+    JsonResult(await sessions.QueueActionAsync((string)context.Items["deviceId"]!, id, queuedId, request, send: true)));
+app.MapPost("/api/threads/{id}/queue/{queuedId}/withdraw", async (string id, string queuedId, QueueActionRequest request, SessionService sessions, HttpContext context) =>
+    JsonResult(await sessions.QueueActionAsync((string)context.Items["deviceId"]!, id, queuedId, request, send: false)));
 app.MapPost("/api/threads/{id}/turns/{turnId}/steer", async (string id, string turnId, SendMessageRequest request, SessionService sessions, HttpContext context) =>
     JsonResult(await sessions.SendAsync((string)context.Items["deviceId"]!, id, turnId, request)));
 app.MapPost("/api/threads/{id}/turns/{turnId}/interrupt", async (string id, string turnId, SessionService sessions) => JsonResult(await sessions.InterruptAsync(id, turnId)));

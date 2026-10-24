@@ -78,7 +78,8 @@ class FileDiffCard extends StatelessWidget {
             InkWell(
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  fullscreenDialog: true,
+                  fullscreenDialog:
+                      kIsWeb || defaultTargetPlatform != TargetPlatform.android,
                   builder: (_) => FileDiffScreen(
                     file: file,
                     aggregate: isAggregate,

@@ -143,6 +143,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> _loadSession() async {
     status = asMap(await api.request('GET', '/api/status'));
+    conversation.queueSupported = status['queuedMessages'] == true;
     authenticated = true;
     await _configureNotifications();
     if (status['codex'] == 'ready') {
@@ -430,6 +431,7 @@ class AppController extends ChangeNotifier {
       final currentStatus = asMap(await api.request('GET', '/api/status'));
       if (!_currentConnection(generation)) return;
       status = currentStatus;
+      conversation.queueSupported = status['queuedMessages'] == true;
       unawaited(_configureNotifications());
       await conversation.reload();
       if (!_currentConnection(generation)) return;
@@ -528,6 +530,7 @@ class AppController extends ChangeNotifier {
           final currentStatus = asMap(await api.request('GET', '/api/status'));
           if (!_currentConnection(generation)) return;
           status = currentStatus;
+          conversation.queueSupported = status['queuedMessages'] == true;
           unawaited(_configureNotifications());
           await connectEvents();
         } catch (exception) {

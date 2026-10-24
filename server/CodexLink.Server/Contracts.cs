@@ -13,6 +13,7 @@ public sealed record CreateDirectoryRequest(string ParentPath, string Name);
 /// <summary>A user message with uploaded attachment IDs and a stable retry ID.</summary>
 public sealed record SendMessageRequest(string RequestId, string Text, string[]? AttachmentIds = null, string? Model = null, string? Effort = null, MessageReference[]? References = null);
 public sealed record MessageReference(string Type, string Name, string Path);
+public sealed record QueueActionRequest(string RequestId, string? ExpectedTurnId = null);
 /// <summary>Native goal update. BudgetSpecified distinguishes no change from removing a budget.</summary>
 public sealed record SetGoalRequest(string? Objective, string? Status, long? TokenBudget, bool BudgetSpecified = false);
 public sealed record SetPermissionsRequest(string Preset);
@@ -35,6 +36,7 @@ public sealed class ApiException(int status, string code, string message) : Exce
 [JsonSerializable(typeof(CreateProjectRequest))]
 [JsonSerializable(typeof(CreateDirectoryRequest))]
 [JsonSerializable(typeof(SendMessageRequest))]
+[JsonSerializable(typeof(QueueActionRequest))]
 [JsonSerializable(typeof(SetGoalRequest))]
 [JsonSerializable(typeof(SetPermissionsRequest))]
 [JsonSerializable(typeof(ApprovalRequest))]

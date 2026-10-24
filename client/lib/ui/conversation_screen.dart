@@ -13,6 +13,7 @@ import '../data/conversation_controller.dart';
 import '../data/models.dart';
 import '../data/questions.dart';
 import 'question_prompt.dart';
+import 'queued_input_bar.dart';
 import '../platform/transport.dart' as transport;
 import 'file_preview.dart';
 import 'composer_commands.dart';
@@ -163,227 +164,323 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ],
         );
       }
-      return Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-            child: Row(
-              children: [
-                if (widget.onBack != null) BackButton(onPressed: widget.onBack),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        controller.title.replaceAll('\n', ' '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      ConnectionIndicator(controller: widget.appController),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '会话附件',
-                  onPressed: () => _showFiles(context),
-                  icon: const Icon(Icons.folder_open_outlined, size: 21),
-                ),
-                IconButton(
-                  tooltip: '账号用量',
-                  onPressed: () =>
-                      showAccountPanel(context, widget.appController),
-                  icon: const Icon(Icons.account_circle_outlined, size: 23),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          InkWell(
-            onTap: () => showSessionUsage(context, controller),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+      return LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.data_usage_rounded,
-                    size: 16,
-                    color: colors.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 8),
+                  if (widget.onBack != null)
+                    BackButton(onPressed: widget.onBack),
                   Expanded(
-                    child: Text(
-                      '会话 ${compactNumber(controller.usage.total)} Token  ·  上下文 ${controller.usage.fraction == null ? '待更新' : '约 ${(controller.usage.fraction! * 100).round()}%'}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.onSurfaceVariant,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          controller.title.replaceAll('\n', ' '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        ConnectionIndicator(controller: widget.appController),
+                      ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right, size: 17),
+                  IconButton(
+                    tooltip: '会话附件',
+                    onPressed: () => _showFiles(context),
+                    icon: const Icon(Icons.folder_open_outlined, size: 21),
+                  ),
+                  IconButton(
+                    tooltip: '账号用量',
+                    onPressed: () =>
+                        showAccountPanel(context, widget.appController),
+                    icon: const Icon(Icons.account_circle_outlined, size: 23),
+                  ),
                 ],
               ),
             ),
-          ),
-          if (!controller.canControl)
-            MaterialBanner(
-              content: Text(controller.controlReason ?? '此会话暂时无法控制。'),
-              actions: [
-                TextButton(
-                  onPressed: () => _perform(
-                    controller.archived
-                        ? controller.unarchive
-                        : controller.reload,
-                  ),
-                  child: Text(controller.archived ? '恢复会话' : '同步重试'),
+            const Divider(height: 1),
+            InkWell(
+              onTap: () => showSessionUsage(context, controller),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 11,
                 ),
-              ],
-            ),
-          if (!widget.appController.usable)
-            MaterialBanner(
-              content: Text(
-                '${widget.appController.connectionLabel}。已提交任务独立于手机连接运行。',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: widget.appController.foreground,
-                  child: const Text('重新连接'),
-                ),
-              ],
-            ),
-          if (controller.loading) const LinearProgressIndicator(minHeight: 2),
-          Expanded(
-            child: Stack(
-              children: [
-                if (controller.items.isEmpty && !controller.loading)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(30),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.data_usage_rounded,
+                      size: 16,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: Text(
-                        '描述你想完成的事情，\n也可以添加文件或设置一个目标。',
-                        textAlign: TextAlign.center,
+                        '会话 ${compactNumber(controller.usage.total)} Token  ·  上下文 ${controller.usage.fraction == null ? '待更新' : '约 ${(controller.usage.fraction! * 100).round()}%'}',
                         style: TextStyle(
+                          fontSize: 12,
                           color: colors.onSurfaceVariant,
-                          height: 1.8,
                         ),
                       ),
                     ),
-                  ),
-                _messageList(),
-                if (!_follow)
-                  Positioned(
-                    right: 24,
-                    bottom: 16,
-                    child: FilledButton.tonalIcon(
-                      onPressed: () {
-                        setState(() => _follow = true);
-                        _updated();
-                      },
-                      icon: const Icon(Icons.arrow_downward, size: 16),
-                      label: const Text('最新内容'),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (controller.approvals.any(
-            (a) => a['method'] != 'item/tool/requestUserInput',
-          ))
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 260),
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                children: controller.approvals
-                    .where((a) => a['method'] != 'item/tool/requestUserInput')
-                    .map(
-                      (a) => ApprovalCard(
-                        key: ValueKey(a['id']),
-                        approval: a,
-                        controller: controller,
-                        onError: widget.appController.reportError,
-                      ),
-                    )
-                    .toList(),
+                    const Icon(Icons.chevron_right, size: 17),
+                  ],
+                ),
               ),
             ),
-          if (controller.uncertain)
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
-              color: colors.tertiaryContainer,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '提交结果未知。草稿已保留，请先核对最新会话与目标。',
-                    style: TextStyle(fontSize: 12),
+            if (!controller.canControl)
+              MaterialBanner(
+                content: Text(controller.controlReason ?? '此会话暂时无法控制。'),
+                actions: [
+                  TextButton(
+                    onPressed: () => _perform(
+                      controller.archived
+                          ? controller.unarchive
+                          : controller.reload,
+                    ),
+                    child: Text(controller.archived ? '恢复会话' : '同步重试'),
                   ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      TextButton(
-                        onPressed: () => _perform(controller.reconcile),
-                        child: const Text('核对结果'),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('确认尚未执行？'),
-                              content: const Text(
-                                '请先检查最新消息。若旧请求已经执行，再发送会重复启动任务。',
+                ],
+              ),
+            if (!widget.appController.usable)
+              MaterialBanner(
+                content: Text(
+                  '${widget.appController.connectionLabel}。已提交任务独立于手机连接运行。',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: widget.appController.foreground,
+                    child: const Text('重新连接'),
+                  ),
+                ],
+              ),
+            if (controller.loading) const LinearProgressIndicator(minHeight: 2),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, bodyConstraints) => Column(
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          if (controller.items.isEmpty && !controller.loading)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(30),
+                                child: Text(
+                                  '描述你想完成的事情，\n也可以添加文件或设置一个目标。',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: colors.onSurfaceVariant,
+                                    height: 1.8,
+                                  ),
+                                ),
                               ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('返回检查'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('已核对，恢复草稿'),
-                                ),
-                              ],
                             ),
-                          );
-                          if (confirmed == true) {
-                            controller.confirmNotSubmitted();
-                          }
-                        },
-                        child: const Text('已确认未提交'),
+                          _messageList(),
+                          if (!_follow)
+                            Positioned(
+                              right: 24,
+                              bottom: 16,
+                              child: FilledButton.tonalIcon(
+                                onPressed: () {
+                                  setState(() => _follow = true);
+                                  _updated();
+                                },
+                                icon: const Icon(
+                                  Icons.arrow_downward,
+                                  size: 16,
+                                ),
+                                label: const Text('最新内容'),
+                              ),
+                            ),
+                        ],
                       ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 940),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TaskActivity(
-                    controller: controller,
-                    connected: widget.appController.usable,
-                  ),
-                  if (controller.goal != null &&
-                      controller.goal?['status'] != 'complete')
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                      child: _goalCard(context),
                     ),
-                  QuestionBar(controller: controller),
-                  Composer(appController: widget.appController),
-                ],
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: bodyConstraints.maxHeight * .78,
+                      ),
+                      child: SingleChildScrollView(
+                        key: const ValueKey('composer-region'),
+                        reverse: true,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (controller.approvals.any(
+                              (a) =>
+                                  a['method'] != 'item/tool/requestUserInput',
+                            ))
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxHeight: 260,
+                                ),
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    4,
+                                    20,
+                                    8,
+                                  ),
+                                  children: controller.approvals
+                                      .where(
+                                        (a) =>
+                                            a['method'] !=
+                                            'item/tool/requestUserInput',
+                                      )
+                                      .map(
+                                        (a) => ApprovalCard(
+                                          key: ValueKey(a['id']),
+                                          approval: a,
+                                          controller: controller,
+                                          onError:
+                                              widget.appController.reportError,
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              ),
+                            if (controller.uncertain)
+                              Container(
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  10,
+                                  20,
+                                  6,
+                                ),
+                                color: colors.tertiaryContainer,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      '提交结果未知。草稿已保留，请先核对最新会话与目标。',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    Wrap(
+                                      spacing: 8,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              _perform(controller.reconcile),
+                                          child: const Text('核对结果'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () async {
+                                            final confirmed =
+                                                await showDialog<bool>(
+                                                  context: context,
+                                                  builder: (context) =>
+                                                      AlertDialog(
+                                                        title: const Text(
+                                                          '确认尚未执行？',
+                                                        ),
+                                                        content: const Text(
+                                                          '请先检查最新消息。若旧请求已经执行，再发送会重复启动任务。',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  false,
+                                                                ),
+                                                            child: const Text(
+                                                              '返回检查',
+                                                            ),
+                                                          ),
+                                                          FilledButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  true,
+                                                                ),
+                                                            child: const Text(
+                                                              '已核对，恢复草稿',
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                );
+                                            if (confirmed == true) {
+                                              controller.confirmNotSubmitted();
+                                            }
+                                          },
+                                          child: const Text('已确认未提交'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 940,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxHeight: (constraints.maxHeight * .27)
+                                            .clamp(72, 200),
+                                      ),
+                                      child: SingleChildScrollView(
+                                        key: const ValueKey(
+                                          'composer-status-bars',
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            TaskActivity(
+                                              controller: controller,
+                                              connected:
+                                                  widget.appController.usable,
+                                            ),
+                                            if (controller.goal != null &&
+                                                controller.goal?['status'] !=
+                                                    'complete')
+                                              Padding(
+                                                padding:
+                                                    const EdgeInsets.fromLTRB(
+                                                      16,
+                                                      4,
+                                                      16,
+                                                      4,
+                                                    ),
+                                                child: _goalCard(context),
+                                              ),
+                                            QuestionBar(controller: controller),
+                                            QueuedInputBar(
+                                              controller: controller,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    Composer(
+                                      appController: widget.appController,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     },
   );
@@ -780,10 +877,12 @@ class _ComposerState extends State<Composer> {
   }
 
   void _changed() {
-    if (_threadId != controller.threadId ||
-        (_text.text.isNotEmpty && controller.draft.isEmpty)) {
+    if (_threadId != controller.threadId || _text.text != controller.draft) {
       _threadId = controller.threadId;
-      _text.text = controller.draft;
+      _text.value = TextEditingValue(
+        text: controller.draft,
+        selection: TextSelection.collapsed(offset: controller.draft.length),
+      );
     }
     if (mounted) setState(() {});
   }
@@ -965,6 +1064,8 @@ class _ComposerState extends State<Composer> {
                       ? '描述目标，发送后开始执行…'
                       : controller.activeTurnId == null
                       ? '描述任务 · / 指令 · @ 文件'
+                      : controller.queueSupported
+                      ? '补充内容，发送后排队…'
                       : '补充当前任务的方向…',
                   filled: false,
                   counterText: '',
@@ -1008,69 +1109,79 @@ class _ComposerState extends State<Composer> {
                         },
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 23),
                 ),
-                const Spacer(),
-                IconButton(
-                  tooltip: '输入指令',
-                  onPressed: controller.canControl
-                      ? () => setState(() => _commands = !_commands)
-                      : null,
-                  icon: const Icon(Icons.terminal_rounded, size: 20),
-                ),
-                IconButton(
-                  tooltip: controller.goalMode ? '取消 Goal 模式' : '设为 Goal',
-                  isSelected: controller.goalMode,
-                  onPressed:
-                      controller.canControl &&
-                          !controller.sending &&
-                          !controller.uncertain
-                      ? () {
-                          controller.setGoalMode(!controller.goalMode);
-                          _focus.requestFocus();
-                        }
-                      : null,
-                  style: IconButton.styleFrom(
-                    backgroundColor: controller.goalMode
-                        ? colors.primaryContainer
-                        : Colors.transparent,
-                    foregroundColor: controller.goalMode
-                        ? colors.onPrimaryContainer
-                        : colors.onSurfaceVariant,
-                  ),
-                  icon: const Icon(Icons.flag_outlined, size: 21),
-                  selectedIcon: const Icon(Icons.flag_rounded, size: 21),
-                ),
-                if (controller.activeTurnId != null)
-                  IconButton(
-                    tooltip: '停止当前轮次并暂停目标',
-                    onPressed: () async {
-                      try {
-                        await controller.stop();
-                      } catch (error) {
-                        widget.appController.reportError(error);
-                      }
-                    },
-                    icon: const Icon(Icons.stop_circle_outlined),
-                  ),
-                FilledButton.icon(
-                  onPressed:
-                      widget.appController.usable &&
-                          (controller.canSend || _commandQuery.isNotEmpty)
-                      ? _send
-                      : null,
-                  icon: controller.sending
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.arrow_upward_rounded, size: 18),
-                  label: Text(
-                    _commandQuery.isNotEmpty
-                        ? '打开'
-                        : controller.goalMode || controller.activeTurnId == null
-                        ? '发送'
-                        : '补充',
-                    style: const TextStyle(fontSize: 13),
+                Expanded(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: '输入指令',
+                        onPressed: controller.canControl
+                            ? () => setState(() => _commands = !_commands)
+                            : null,
+                        icon: const Icon(Icons.terminal_rounded, size: 20),
+                      ),
+                      IconButton(
+                        tooltip: controller.goalMode ? '取消 Goal 模式' : '设为 Goal',
+                        isSelected: controller.goalMode,
+                        onPressed:
+                            controller.canControl &&
+                                !controller.sending &&
+                                !controller.uncertain
+                            ? () {
+                                controller.setGoalMode(!controller.goalMode);
+                                _focus.requestFocus();
+                              }
+                            : null,
+                        style: IconButton.styleFrom(
+                          backgroundColor: controller.goalMode
+                              ? colors.primaryContainer
+                              : Colors.transparent,
+                          foregroundColor: controller.goalMode
+                              ? colors.onPrimaryContainer
+                              : colors.onSurfaceVariant,
+                        ),
+                        icon: const Icon(Icons.flag_outlined, size: 21),
+                        selectedIcon: const Icon(Icons.flag_rounded, size: 21),
+                      ),
+                      if (controller.activeTurnId != null)
+                        IconButton(
+                          tooltip: '停止当前轮次并暂停目标',
+                          onPressed: () async {
+                            try {
+                              await controller.stop();
+                            } catch (error) {
+                              widget.appController.reportError(error);
+                            }
+                          },
+                          icon: const Icon(Icons.stop_circle_outlined),
+                        ),
+                      FilledButton.icon(
+                        onPressed:
+                            widget.appController.usable &&
+                                (controller.canSend || _commandQuery.isNotEmpty)
+                            ? _send
+                            : null,
+                        icon: controller.sending
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.arrow_upward_rounded, size: 18),
+                        label: Text(
+                          _commandQuery.isNotEmpty
+                              ? '打开'
+                              : controller.goalMode ||
+                                    controller.activeTurnId == null
+                              ? '发送'
+                              : '补充',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

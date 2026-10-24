@@ -11,6 +11,28 @@ import 'api_client.dart';
 import 'models.dart';
 import 'questions.dart';
 
+// Withdrawn uploads already live on the gateway; there is no local file to
+// read or upload again. Keep their metadata in the existing composer model.
+final class _UploadedFile extends PlatformFile {
+  _UploadedFile(this.name, this.size, String id)
+    : uri = Uri(scheme: 'codexlink-attachment', path: id);
+  @override
+  final String name;
+  final int size;
+  @override
+  final Uri uri;
+  @override
+  get xFile => throw StateError('附件已在服务端，无需重新上传。');
+  @override
+  int lengthSync() => size;
+  @override
+  Future<int> length() async => size;
+  @override
+  Future<Uint8List> readAsBytes() => throw StateError('附件已在服务端，无需重新上传。');
+  @override
+  Stream<Uint8List> readAsByteStream() => throw StateError('附件已在服务端，无需重新上传。');
+}
+
 class AttachmentUpload extends ChangeNotifier {
   AttachmentUpload(this.file, this.size, this.threadId);
   final PlatformFile file;
@@ -63,6 +85,13 @@ class ConversationController extends ChangeNotifier {
   final Map<String, QuestionDraft> _questionDrafts = {};
   final Set<String> _answeredQuestionIds = {};
   List<JsonMap> files = [];
+  bool queueSupported = false;
+  List<JsonMap> queuedInputs = [];
+  JsonMap? pendingQueueAction;
+  bool queueActionBusy = false;
+  String? queueError;
+  int _queueRevision = 0;
+  Timer? _queueTimer;
   String draft = '';
   bool goalMode = false;
   String? _pendingGoalObjective;
@@ -190,7 +219,7 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> select(String id, {bool archived = false}) async {
-    if (sending || uncertain || permissionsBusy) {
+    if (sending || uncertain || permissionsBusy || queueActionBusy) {
       throw const ApiError('请先等待当前提交完成并核对结果，再切换会话。');
     }
     _draftTimer?.cancel();
@@ -199,6 +228,13 @@ class ConversationController extends ChangeNotifier {
       await preferences.setString(_draftKey(threadId!), draft);
     }
     threadId = id;
+    queuedInputs = [];
+    queueError = null;
+    _queueRevision++;
+    final pendingQueue = preferences.getString('${_draftKey(id)}:queue-action');
+    pendingQueueAction = pendingQueue == null
+        ? null
+        : asMap(jsonDecode(pendingQueue));
     _answeredQuestionIds.clear();
     goalMode = false;
     this.archived = archived;
@@ -263,6 +299,7 @@ class ConversationController extends ChangeNotifier {
       files = asMaps(snapshot['attachments']);
       _mergeHistory(asMaps(history['data']), prepend: false);
       itemsCursor = history['nextCursor'] as String?;
+      if (queueSupported) await refreshQueue();
     } finally {
       if (generation == _generation) {
         loading = false;
@@ -419,6 +456,9 @@ class ConversationController extends ChangeNotifier {
     }
     if (parameters['threadId'] != threadId) return;
     switch (method) {
+      case 'thread/queue/changed':
+        _queueTimer?.cancel();
+        _queueTimer = Timer(const Duration(milliseconds: 80), refreshQueue);
       case 'turn/started':
         activeTurnId = asMap(parameters['turn'])['id'] as String?;
         activity = '正在处理';
@@ -640,6 +680,8 @@ class ConversationController extends ChangeNotifier {
     };
     final path = activeTurnId == null
         ? '/api/threads/$id/turns'
+        : queueSupported
+        ? '/api/threads/$id/queue'
         : '/api/threads/$id/turns/$activeTurnId/steer';
     pendingRequestId = requestId;
     _pendingBody = body;
@@ -754,6 +796,7 @@ class ConversationController extends ChangeNotifier {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_draftKey(id), draft);
     notifyListeners();
+    if (queueSupported) unawaited(refreshQueue());
   }
 
   Future<void> reconcile() async {
@@ -1088,9 +1131,210 @@ class ConversationController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshQueue() async {
+    final id = threadId;
+    if (!queueSupported || id == null || _disposed) return;
+    final revision = ++_queueRevision;
+    final session = _sessionGeneration;
+    try {
+      final result = asMap(await api.request('GET', '/api/threads/$id/queue'));
+      if (_disposed ||
+          session != _sessionGeneration ||
+          id != threadId ||
+          revision != _queueRevision) {
+        return;
+      }
+      queuedInputs = asMaps(result['data']);
+      queueError = null;
+    } catch (error) {
+      if (_disposed ||
+          session != _sessionGeneration ||
+          id != threadId ||
+          revision != _queueRevision) {
+        return;
+      }
+      queueError = '待发送内容同步失败，点击重试';
+    }
+    notifyListeners();
+  }
+
+  Future<void> actOnQueuedInput(JsonMap input, {required bool sendNow}) async {
+    final id = threadId;
+    if (id == null ||
+        !canControl ||
+        queueActionBusy ||
+        pendingQueueAction != null ||
+        sending) {
+      return;
+    }
+    final session = _sessionGeneration;
+    final pending = <String, dynamic>{
+      'requestId': newRequestId(),
+      'kind': sendNow ? 'send' : 'withdraw',
+      'submission': input,
+    };
+    pendingQueueAction = pending;
+    final expectedTurn = activeTurnId;
+    queueActionBusy = true;
+    notifyListeners();
+    try {
+      await _saveQueueAction(id);
+      if (_disposed || session != _sessionGeneration) return;
+      final result = asMap(
+        await api.request(
+          'POST',
+          '/api/threads/$id/queue/${input['id']}/${pending['kind']}',
+          body: {
+            'requestId': pending['requestId'],
+            if (sendNow) 'expectedTurnId': expectedTurn,
+          },
+        ),
+      );
+      if (_disposed || session != _sessionGeneration || threadId != id) return;
+      await _applyQueueResult(id, result);
+    } catch (error) {
+      if (_disposed || session != _sessionGeneration || threadId != id) return;
+      if (error is ApiError &&
+          error.status != null &&
+          error.status! >= 400 &&
+          error.status! < 500 &&
+          error.status != 408) {
+        pendingQueueAction = null;
+        await _saveQueueAction(id);
+      }
+      onError(error);
+    } finally {
+      if (!_disposed && session == _sessionGeneration) {
+        queueActionBusy = false;
+        notifyListeners();
+        await refreshQueue();
+      }
+    }
+  }
+
+  Future<void> _saveQueueAction(String id) async {
+    final key = '${_draftKey(id)}:queue-action';
+    final value = pendingQueueAction == null
+        ? null
+        : jsonEncode(pendingQueueAction);
+    final preferences = await SharedPreferences.getInstance();
+    if (value == null) {
+      await preferences.remove(key);
+    } else {
+      await preferences.setString(key, value);
+    }
+  }
+
+  Future<void> restoreUnconfirmedQueueCopy() async {
+    if (threadId == null || pendingQueueAction == null || queueActionBusy) {
+      return;
+    }
+    await _applyQueueResult(threadId!, {
+      'state': 'withdrawn',
+      'submission': pendingQueueAction!['submission'],
+    });
+  }
+
+  Future<void> _applyQueueResult(String id, JsonMap result) async {
+    if (result['state'] == 'unknown') return;
+    if (result['state'] == 'withdrawn') {
+      final input = asMap(result['submission']);
+      final text = input['text'] as String? ?? '';
+      setDraft([draft, text].where((value) => value.isNotEmpty).join('\n'));
+      for (final reference in asMaps(input['references'])) {
+        if (!references.any(
+          (r) =>
+              r['type'] == reference['type'] && r['path'] == reference['path'],
+        )) {
+          references.add(reference);
+        }
+      }
+      final uploads = _uploads.putIfAbsent(id, () => []);
+      for (final attachment in asMaps(input['attachments'])) {
+        if (uploads.any((file) => file.uploaded?['id'] == attachment['id'])) {
+          continue;
+        }
+        final size = (attachment['size'] as num?)?.toInt() ?? 0;
+        uploads.add(
+          AttachmentUpload(
+            _UploadedFile(
+              attachment['name'] as String? ?? '附件',
+              size,
+              attachment['id'] as String,
+            ),
+            size,
+            id,
+          )..uploaded = attachment,
+        );
+      }
+      await _saveReferences();
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_draftKey(id), draft);
+    } else if (!['sent', 'queued'].contains(result['state'])) {
+      return;
+    }
+    if (result['message'] case final String message) onError(ApiError(message));
+    pendingQueueAction = null;
+    await _saveQueueAction(id);
+    notifyListeners();
+  }
+
+  Future<void> reconcileQueueAction() async {
+    final id = threadId;
+    final pending = pendingQueueAction;
+    if (id == null || pending == null || queueActionBusy) return;
+    final session = _sessionGeneration;
+    queueActionBusy = true;
+    notifyListeners();
+    try {
+      final result = asMap(
+        await api.request('GET', '/api/operations/${pending['requestId']}'),
+      );
+      if (_disposed || session != _sessionGeneration || threadId != id) return;
+      if (result['state'] == 'accepted') {
+        await _applyQueueResult(id, asMap(result['result']));
+      } else if (result['state'] == 'failed') {
+        pendingQueueAction = null;
+        await _saveQueueAction(id);
+        onError(ApiError(result['message'] as String? ?? '操作未完成，请检查队列。'));
+      }
+      await reload();
+      if (_disposed || session != _sessionGeneration || threadId != id) return;
+      final messageId = asMap(pending['submission'])['clientUserMessageId'];
+      // Native userMessage.clientId correlates an accepted steer even if its
+      // response was lost or the gateway's in-memory operation receipt expired.
+      if (messageId != null &&
+          items.any(
+            (item) =>
+                item.type == 'userMessage' &&
+                item.data['clientId'] == messageId,
+          )) {
+        pendingQueueAction = null;
+        await _saveQueueAction(id);
+      }
+      if (pendingQueueAction != null) {
+        onError(const ApiError('结果仍未知，内容已保留；请核对最新消息，系统不会自动重发。'));
+      }
+    } catch (error) {
+      if (!_disposed && session == _sessionGeneration) onError(error);
+    } finally {
+      if (!_disposed && session == _sessionGeneration) {
+        queueActionBusy = false;
+        notifyListeners();
+      }
+    }
+  }
+
   void reset() {
     _generation++;
     _sessionGeneration++;
+    _queueRevision++;
+    _queueTimer?.cancel();
+    queueSupported = false;
+    queuedInputs = [];
+    pendingQueueAction = null;
+    queueActionBusy = false;
+    queueError = null;
     _questionDrafts.clear();
     _answeredQuestionIds.clear();
     _draftTimer?.cancel();
@@ -1146,6 +1390,7 @@ class ConversationController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _queueTimer?.cancel();
     _draftTimer?.cancel();
     _clearItems();
     streamRevision.dispose();

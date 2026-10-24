@@ -132,7 +132,21 @@ def main():
                     {'requestId':str(uuid.uuid4()), 'text':reply_text})[0] == 200
                 history = json.loads(request(f'/api/threads/{thread}/items')[2])['data']
                 assert any(v['item'].get('content') == [{'type':'text', 'text':reply_text}] for v in history)
-                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission, notification JSON/SSE, native question replies and asynchronous question history/steer')
+                deadline = time.monotonic() + 10
+                while json.loads(request(f'/api/threads/{thread}')[2])['activeTurnId'] is not None:
+                    if time.monotonic() > deadline: raise TimeoutError('Asynchronous question did not complete')
+                    time.sleep(.05)
+                assert json.loads(request('/api/status')[2])['queuedMessages'] is True
+                turn = json.loads(request(f'/api/threads/{thread}/turns', {'requestId':str(uuid.uuid4()), 'text':'hold'})[2])['turn']['id']
+                queued = json.loads(request(f'/api/threads/{thread}/queue', {'requestId':str(uuid.uuid4()), 'text':'queued 中文'})[2])['submission']
+                assert json.loads(request(f'/api/threads/{thread}/queue')[2])['data'] == [queued]
+                withdrawn = json.loads(request(f"/api/threads/{thread}/queue/{queued['id']}/withdraw", {'requestId':str(uuid.uuid4())})[2])
+                assert withdrawn['state'] == 'withdrawn' and withdrawn['submission']['text'] == 'queued 中文'
+                queued = json.loads(request(f'/api/threads/{thread}/queue', {'requestId':str(uuid.uuid4()), 'text':'send now 中文'})[2])['submission']
+                sent = json.loads(request(f"/api/threads/{thread}/queue/{queued['id']}/send", {'requestId':str(uuid.uuid4()), 'expectedTurnId':turn})[2])
+                assert sent['state'] == 'sent'
+                assert json.loads(request(f'/api/threads/{thread}/queue')[2])['data'] == []
+                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission, notification JSON/SSE, native question replies, asynchronous question history/steer, native input queue/list/withdraw/send-now')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact
                 # its generated gateway token before exposing startup failures.

@@ -259,3 +259,24 @@ Android 16 x86_64 模拟器先在 v0.1.4 复现：延迟 8 秒的 steer 期间�
 四个 APK 均通过签名、ABI、v0.1.5 与递增版本号检查，签名证书与 v0.1.4 相同；四个服务端压缩包的版本、可执行文件摘要、内嵌 Web/AOT/UPX 元数据已核对。全部九个草稿 Release 文件的大小与 SHA-256 匹配本地产物。源码导出与 Git 历史 Gitleaks 无发现，1,806 项源码/归档内容的已知密钥扫描无命中。
 
 [v0.1.5 四平台原生运行检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40092561466)全部通过。Windows x64/ARM64 与 Linux x64/ARM64 均使用最终归档验证原生问答和结构化异步答案回传/历史，以及既有鉴权、权限、通知和内嵌网页；两个 Linux 架构另各通过完整 50 项契约。
+
+## v0.1.6 Android 返回与待发送输入（2026-10-24）
+
+代码与行为回归：
+
+- Flutter 全量 **100 项通过**；Chrome **21 项通过**，包含原有网页导航、Diff、剪贴板、通知与新的待发送交互；`flutter analyze` 无问题。
+- 服务端受控替身契约 **57 项通过**。新增 7 项验证原生队列添加/读取、幂等撤回、附件/引用与正文还原、立即发送的轮次检查、与自动消费竞争时不重复发送、明确拒绝重新排队、响应丢失保留回执及跨客户端队列事件。
+- 已分别对正在运行的共享 Codex 和独立 stdio 连接执行只读 `thread/queue/list` 能力检查，均支持；没有调用模型、恢复活动线程或修改其任务。
+
+| Requirement | Evidence |
+|---|---|
+| Android 会话动画与返回取消/提交保留草稿，Web 保留原切换 | `android_entry_animates_while_web_keeps_inline_conversation`、`conversation_predictive_back_cancels_then_commits_with_draft` |
+| Diff 返回至同一会话，系统返回优先关闭图片与抽屉 | `diff_predictive_back_returns_to_same_conversation`、`system_back_closes_image_preview_before_conversation`、`system_back_closes_preview_and_sheet_before_conversation` |
+| 正在运行时排队，立即发送不打断当前轮次、不重复提交 | `test_send_now_steers_expected_turn_without_interrupt_or_duplicate`、`test_changed_turn_and_dispatch_race_never_double_send` |
+| 撤回合并草稿、附件、引用，并真正更新编辑框 | `running_messages_queue_and_withdraw_merge_draft_files_and_references`、`withdraw_button_updates_visible_editor_and_next_submission` |
+| 未知结果重启后仍可查询，不自动重发 | `send_now_unknown_survives_restart_and_reconciles_without_resending`、`test_lost_steer_result_keeps_recovery_receipt_without_requeue` |
+| Goal、问题、队列及键盘共存不覆盖/溢出 | `goal_questions_queue_and_keyboard_remain_scrollable_without_overlap`：390×844、320×568 和 800×400，最大键盘 240，字体缩放 1.3 |
+
+Android 16 x86_64 模拟器实测会话和 Diff 返回手势预览、取消、完成，以及图片和附件抽屉的系统返回。v0.1.5 原版在此模拟器没有复现“图片返回直接退桌面”，因此修复记录不冒称已在该基线复现；新版本通过明确的 Android 回调及同一 Navigator 的真实路由验证弹窗优先关闭。尚未覆盖用户的具体真机与 OEM 返回手势。
+
+三栏同时显示的实际画面已检查。按钮实测发现撤回后底层草稿更新但可见编辑框未更新，已修复外部草稿同步，并加入直接点击按钮、检查输入框文本、继续编辑并提交的组件回归。修正后 Android 实测现有草稿与撤回文本同时出现在编辑框；立即发送期间切后台再回前台，完成后队列消失、独立草稿保留。Debug 热重载用于行为检查，不作为性能证据。

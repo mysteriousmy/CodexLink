@@ -7,6 +7,7 @@ from pathlib import Path
 lock = threading.RLock()
 threads, goals, approvals, projects, project_requests = {}, {}, {}, {}, {}
 settings = {}
+queues = {}
 usage = {
     "total": {"totalTokens": 1200, "inputTokens": 1000, "outputTokens": 200},
     "last": {"totalTokens": 300},
@@ -43,6 +44,16 @@ def finish(tid):
     event("thread/tokenUsage/updated", threadId=tid, tokenUsage=usage)
     t["status"] = "completed"
     event("turn/completed", threadId=tid, turn=t)
+    dispatch_queue(tid)
+
+
+def dispatch_queue(tid):
+    with lock:
+        if not queues.get(tid) or any(t['status'] == 'inProgress' for t in threads[tid]['turns']):
+            return
+        item = queues[tid].pop(0)
+        event('thread/queue/changed', threadId=tid)
+        call('turn/start', {'threadId':tid, 'input':item['input'], 'clientUserMessageId':item['clientUserMessageId']})
 
 
 def later(action, delay=0.05):
@@ -192,6 +203,28 @@ def call(method, p):
         goals[tid] = g
         event("thread/goal/updated", threadId=tid, goal=g)
         return {"goal": g}
+    if method == 'thread/queue/list':
+        return {'data':queues.get(tid, []), 'nextCursor':None}
+    if method == 'thread/queue/add':
+        item = {'id':str(uuid.uuid4()), 'input':p['input'], 'clientUserMessageId':p['clientUserMessageId']}
+        queues.setdefault(tid, []).append(item)
+        event('thread/queue/changed', threadId=tid)
+        later(lambda: dispatch_queue(tid))
+        return {'queuedSubmission':item}
+    if method == 'thread/queue/delete':
+        with lock:
+            item = next((q for q in queues.get(tid, []) if q['id'] == p['queuedSubmissionId']), None)
+            if item is not None:
+                queues[tid].remove(item)
+                event('thread/queue/changed', threadId=tid)
+            consumed = Path(os.environ['CODEXLINK_DATA'], 'queue-consumed-on-delete').exists()
+            return {'deleted':item is not None and not consumed}
+    if method == 'thread/queue/start':
+        if any(t['status'] == 'inProgress' for t in threads[tid]['turns']): raise ValueError('thread already has an active or pending turn')
+        item = next(q for q in queues[tid] if q['id'] == p['queuedSubmissionId'])
+        queues[tid].remove(item)
+        event('thread/queue/changed', threadId=tid)
+        return call('turn/start', {'threadId':tid, 'input':item['input'], 'clientUserMessageId':item['clientUserMessageId']})
     if method == "turn/start":
         text = " ".join(i.get("text", "") for i in p["input"])
         if text == "crash":
@@ -203,6 +236,7 @@ def call(method, p):
                 {
                     "id": p.get("clientUserMessageId", str(uuid.uuid4())),
                     "type": "userMessage",
+                    "clientId": p.get("clientUserMessageId"),
                     "content": p["input"],
                 }
             ],
@@ -315,9 +349,11 @@ def call(method, p):
             later(lambda: finish(tid), 0.4 if text == "delayed" else 0.05)
         return {"turn": t}
     if method == "turn/steer":
+        if Path(os.environ['CODEXLINK_DATA'], 'steer-reject').exists(): raise ValueError('fixture steer rejection')
+        if Path(os.environ['CODEXLINK_DATA'], 'steer-disconnect').exists(): os._exit(7)
         if threads[tid]["turns"][0]["id"] != p["expectedTurnId"]:
             raise ValueError("turn changed")
-        item = {"id": str(uuid.uuid4()), "type": "userMessage", "content": p["input"]}
+        item = {"id": str(uuid.uuid4()), "clientId":p.get('clientUserMessageId'), "type": "userMessage", "content": p["input"]}
         threads[tid]["turns"][0]["items"].append(item)
         event("item/started", threadId=tid, turnId=p["expectedTurnId"], item=item)
         event("item/completed", threadId=tid, turnId=p["expectedTurnId"], item=item)

@@ -5,7 +5,7 @@ using CodexLink.Server.Codex;
 
 namespace CodexLink.Server.Features;
 
-public sealed class SessionService
+public sealed partial class SessionService
 {
     private sealed class SessionState(ProjectConfig project)
     {

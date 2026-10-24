@@ -50,6 +50,10 @@ Upgrade the gateway and Android app to v0.1.5 or later. Pending questions appear
 
 Asynchronous replies use Codex’s question-reply envelope, including the original message and question IDs, through a new turn or `turn/steer`. Compatible Codex TUI clients can dismiss the corresponding queued questions. Your existing composer content is preserved. If submission is uncertain, **核对提交结果** queries its status instead of resending. If a question was sent by an older Codex version without structured question metadata, its ordinary message remains readable and can be answered in the composer.
 
+With both the gateway and client on **v0.1.6**, follow-up messages submitted during a running turn enter Codex's native queue. The strip above the composer offers **立即发送** to steer the current turn and **撤回** to return the text, uploaded attachments and references to your draft. Otherwise, Codex sends the queued input after the current turn finishes. Already consumed input cannot be withdrawn. Queue changes synchronize across clients; uncertain actions keep a status lookup instead of automatically resending. Goal, questions and queued inputs share a bounded, scrollable area so the composer remains usable with a small screen or keyboard. Older gateways retain immediate steer behavior.
+
+Android compact layouts use native page transitions and predictive back for conversations and Diff; system back closes image previews and other dialogs before leaving the conversation. Web conversation navigation retains its existing layout.
+
 ## How it works
 
 ```mermaid
@@ -235,7 +239,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.4
+python3 scripts/build-release.py --all --no-upx --version 0.1.6
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -282,7 +286,7 @@ cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.5/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.6/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

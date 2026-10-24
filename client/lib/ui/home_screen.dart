@@ -20,6 +20,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _showConversation = false;
+  MaterialPageRoute<void>? _conversationRoute;
   final _search = TextEditingController();
   final _threadScroll = ScrollController();
   Timer? _searchDebounce;
@@ -84,8 +85,49 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _select(String id) async {
-    setState(() => _showConversation = true);
+    _enterConversation();
     await _perform(() => controller.selectThread(id));
+  }
+
+  void _enterConversation() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      setState(() => _showConversation = true);
+      return;
+    }
+    if (MediaQuery.sizeOf(context).width >= 960 || _conversationRoute != null) {
+      return;
+    }
+    // A real route gives Android the previous page for predictive back. Keep
+    // dialogs and the Diff reader on this same Navigator so back closes the top.
+    final route = MaterialPageRoute<void>(
+      settings: const RouteSettings(name: '/conversation'),
+      builder: (pageContext) => ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) => Scaffold(
+          key: const ValueKey('android-conversation-page'),
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Stack(
+                children: [
+                  ConversationScreen(
+                    appController: controller,
+                    onBack: () => Navigator.of(pageContext).maybePop(),
+                    onCreate: _create,
+                  ),
+                  _notificationToasts(constraints),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    _conversationRoute = route;
+    unawaited(
+      Navigator.of(context).push(route).whenComplete(() {
+        if (_conversationRoute == route) _conversationRoute = null;
+      }),
+    );
   }
 
   Future<void> _create({bool goal = false}) async {
@@ -97,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
         path: target.path,
       );
       if (!mounted) return;
-      setState(() => _showConversation = true);
+      _enterConversation();
       if (goal && controller.conversation.threadId != null) {
         controller.conversation.setGoalMode(true);
       }
@@ -116,6 +158,13 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!controller.authenticated) {
+      if (_conversationRoute != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !controller.authenticated) {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          }
+        });
+      }
       return ConnectionPage(controller: controller);
     }
     return LayoutBuilder(
@@ -153,24 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                     ],
                   ),
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    width: (constraints.maxWidth - 24).clamp(0, 360).toDouble(),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: (constraints.maxHeight - 24).clamp(
-                          0,
-                          double.infinity,
-                        ),
-                      ),
-                      child: SingleChildScrollView(
-                        child: TaskNotificationToasts(
-                          controller: controller.notifications,
-                        ),
-                      ),
-                    ),
-                  ),
+                  _notificationToasts(constraints),
                 ],
               ),
             ),
@@ -179,6 +211,20 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
+
+  Widget _notificationToasts(BoxConstraints constraints) => Positioned(
+    top: 12,
+    right: 12,
+    width: (constraints.maxWidth - 24).clamp(0, 360).toDouble(),
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: (constraints.maxHeight - 24).clamp(0, double.infinity),
+      ),
+      child: SingleChildScrollView(
+        child: TaskNotificationToasts(controller: controller.notifications),
+      ),
+    ),
+  );
 
   Widget _sidebar(BuildContext context, {required bool compact}) {
     final colors = Theme.of(context).colorScheme;

@@ -97,6 +97,9 @@ JSON 文件只保存小量、低频修改数据；单进程串行更新，写临
 | `DELETE /api/attachments/{id}` | 清理未引用上传；已引用文件只能经显式清理流程移除 |
 | `POST /api/threads/{id}/turns` | 文本和附件 ID；必要时 resume，再 `turn/start` |
 | `POST /api/threads/{id}/turns/{turnId}/steer` | 文本和附件 ID，映射 `turn/steer` 的 `expectedTurnId` |
+| `GET/POST /api/threads/{id}/queue` | 读取/添加 CodexLink 创建的原生待发送输入 |
+| `POST /api/threads/{id}/queue/{queuedId}/send` | 认领队列输入后 steer 当前轮次；空闲时原生 queue/start |
+| `POST /api/threads/{id}/queue/{queuedId}/withdraw` | 原生删除成功后返回可恢复的正文、附件与引用 |
 | `POST /api/threads/{id}/turns/{turnId}/interrupt` | 显式 `turn/interrupt` |
 | `GET /api/threads/{id}/goal` | `thread/goal/get` |
 | `PUT /api/threads/{id}/goal` | `thread/goal/set`，目标、状态、可选预算 |
@@ -126,7 +129,7 @@ JSON 文件只保存小量、低频修改数据；单进程串行更新，写临
 - **发送去重**：客户端生成 requestId；同设备同 ID 在进程存活的有限窗口内返回同一结果；同 ID 不同内容拒绝。记录在调用 Codex 前建立，去重缓存有容量和 TTL。
 - **超时不明**：用同一 requestId 查询/核对；网关重启后缓存已失效时，提示核对最新轮次，由用户决定继续，不能换新 ID 自动重发。
 
-初期同一线程只允许一个活动轮次；执行期间输入框使用 steer 补充信息，另行启动轮次返回忙碌状态。steer 指定的轮次已结束时返回冲突并保留草稿，不自动转成新任务。同一工作目录的并行写任务首版不开放；有实际需要再加入 worktree 隔离。
+初期同一线程只允许一个活动轮次；执行期间的补充内容从 v0.1.6 起进入原生队列，可立即 steer 或撤回；另行启动轮次返回忙碌状态。立即 steer 指定的轮次已结束时返回冲突并保留队列，不自动改成新任务；队列本身的本轮结束后发送由 Codex 原生调度。同一工作目录的并行写任务首版不开放；有实际需要再加入 worktree 隔离。
 
 重连时同时恢复 Goal 和最新用量快照；累计 Token 事件是替换快照，不能再次累加。网关账号用量缓存按账号隔离，合并并发读取，以事件和界面访问触发更新，不用每台设备各自高频请求官方服务。
 
@@ -203,3 +206,11 @@ Web 同源 EventSource 独立于聊天连接，页面隐藏时保留。获得系
 Codex CLI 0.163.0 的 `agentMessage.questions` 使用 `title/options`。v0.1.5 按同版本 TUI 的 `async_question_reply.rs` 发送完整 `<send_user_message_question_reply>` JSON 信封，记录 `questionItemId/question/answer`；ID 为紧凑 JSON 数组 `["request_user_input_async", 原始消息 ID, 原始问题索引]`。活动轮次通过捕获的 `expectedTurnId` 调用 `turn/steer`，空闲时 `turn/start`；复用既有 operation ID 与查询接口，轮次冲突不自动转新轮次，超时/断线只核对状态，不自动重发。TUI 据此移除对应待答项。CodexLink 同样从实时用户消息和分页历史解析完整信封，只忽略 skill/mention 输入，要求恰好一段文本；嵌入示例、残缺信封和带附件的消息保持普通文本。逐题解析、旧整消息 ID 兼容和提前到达的答案用于防止回放重现，索引不随部分回答重排。待答草稿最多 128 组、当前会话回答 ID 最多 8192 个，切换/退出清理 ID，历史按需恢复；答案正文不进入持久草稿。问题统一出现在输入框上方的扁平提示条，聊天历史只保留正文和可读的答案。
 
 共享 Flutter 问答表单按协议显示单选、说明、自由回答、多问题与私密字段，不默认替用户选中/提交。最多 128 组问答草稿保存在 controller 内存中；切换会话或关闭弹窗可继续填写，客户端重启/退出清除，不写 SharedPreferences。网络失败保留内容；问题在另一客户端解决后，已打开的表单禁止提交。提交过程不读取或清理聊天草稿、附件、引用、模型、权限与 Goal。
+
+## Android 返回与待发送输入（v0.1.6）
+
+仅原生 Android 且宽度小于 960 时，会话列表通过根 Navigator 的 MaterialPageRoute 进入会话；Web 与其他平台继续使用原有切换。Android Diff 路由不再标记 fullscreenDialog，使 Flutter 自带 PredictiveBackPageTransitionsBuilder 可提供返回预览、取消及提交；Manifest 显式启用 OnBackInvokedCallback。预览、问答、附件抽屉与 Diff 使用同一个 Navigator；共享 AppController 不随路由复制，注销会关闭认证后的详情路由。
+
+队列由 Codex `thread/queue/*` 保存和调度，网关不复制会话库。`clientUserMessageId` 使用 `codexlink-queue-` 前缀标记本网关创建的输入，并记录正文是否存在，使用户原文与附件/文件引用信封可无损区分；最多 16 条，每条正文不超过 200,000 字符，附件沿用原有限制。`thread/queue/changed` 经现有事件流传递，客户端合并短时间内的通知后只刷新队列，重连时读取快照。
+
+立即发送的 delete 和 Codex 自动消费在原生队列中互斥，删除返回 false 时绝不再 steer。delete 与 steer 是两个原生 RPC，进程故障之间不承诺原子性：明确拒绝才重新排队，未知结果保留正文和稳定操作 ID；客户端将待核对动作保存在当前服务与会话的本地状态中，查询 `/api/operations` 或历史用户消息 `clientId`，不自动重发。操作回执仍采用有界的 30 分钟网关内存记录，跨网关重启可能不可恢复，界面保留人工核对后取回副本的入口。提问回答继续走独立的原生回答/结构化 steer 路径，不加入普通补充队列，也不清除聊天草稿。
