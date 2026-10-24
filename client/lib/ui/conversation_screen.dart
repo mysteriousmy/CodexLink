@@ -11,6 +11,8 @@ import '../data/api_client.dart';
 import '../data/app_controller.dart' as app;
 import '../data/conversation_controller.dart';
 import '../data/models.dart';
+import '../data/questions.dart';
+import 'question_prompt.dart';
 import '../platform/transport.dart' as transport;
 import 'file_preview.dart';
 import 'composer_commands.dart';
@@ -296,6 +298,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 children: controller.approvals
                     .map(
                       (a) => ApprovalCard(
+                        key: ValueKey(a['id']),
                         approval: a,
                         controller: controller,
                         onError: widget.appController.reportError,
@@ -1359,6 +1362,15 @@ class MessageTile extends StatelessWidget {
                   }
                 },
               ),
+            if (asMaps(item.data['questions']).isNotEmpty)
+              QuestionPrompt(
+                controller: controller,
+                sourceId: 'message:${item.id}',
+                questions: CodexQuestion.parse(
+                  item.data['questions'],
+                  asynchronous: true,
+                ),
+              ),
           ],
         );
       }
@@ -1695,6 +1707,15 @@ class _ApprovalCardState extends State<ApprovalCard> {
     final method = widget.approval['method'] as String;
     final parameters = asMap(widget.approval['params']);
     final userInput = method == 'item/tool/requestUserInput';
+    if (userInput) {
+      return QuestionPrompt(
+        controller: widget.controller,
+        sourceId: 'approval:${widget.approval['id']}',
+        approvalId: widget.approval['id'] as String,
+        questions: CodexQuestion.parse(parameters['questions']),
+        blocking: parameters['isBlocking'] != false,
+      );
+    }
     final permissions = method == 'item/permissions/requestApproval';
     final colors = Theme.of(context).colorScheme;
     return Container(
@@ -1707,10 +1728,7 @@ class _ApprovalCardState extends State<ApprovalCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            userInput ? 'Codex 需要你的补充' : '需要你的审批',
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+          Text('需要你的审批', style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           SelectableText(
             (parameters['reason'] ??
@@ -1723,135 +1741,36 @@ class _ApprovalCardState extends State<ApprovalCard> {
             style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 10),
-          if (userInput)
-            FilledButton(
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      final result = await showDialog<JsonMap>(
-                        context: context,
-                        builder: (context) => UserInputDialog(
-                          questions: asMaps(parameters['questions']),
-                        ),
-                      );
-                      if (result != null) await _answer(result);
-                    },
-              child: const Text('填写回答'),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              children: [
-                FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _answer(
-                          permissions
-                              ? {
-                                  'permissions': parameters['permissions'],
-                                  'scope': 'turn',
-                                }
-                              : {'decision': 'accept'},
-                        ),
-                  child: const Text('允许本次'),
-                ),
-                OutlinedButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _answer(
-                          permissions
-                              ? {'permissions': {}, 'scope': 'turn'}
-                              : {'decision': 'decline'},
-                        ),
-                  child: const Text('拒绝'),
-                ),
-              ],
-            ),
+          Wrap(
+            spacing: 8,
+            children: [
+              FilledButton(
+                onPressed: _busy
+                    ? null
+                    : () => _answer(
+                        permissions
+                            ? {
+                                'permissions': parameters['permissions'],
+                                'scope': 'turn',
+                              }
+                            : {'decision': 'accept'},
+                      ),
+                child: const Text('允许本次'),
+              ),
+              OutlinedButton(
+                onPressed: _busy
+                    ? null
+                    : () => _answer(
+                        permissions
+                            ? {'permissions': {}, 'scope': 'turn'}
+                            : {'decision': 'decline'},
+                      ),
+                child: const Text('拒绝'),
+              ),
+            ],
+          ),
         ],
       ),
     );
-  }
-}
-
-class UserInputDialog extends StatefulWidget {
-  const UserInputDialog({super.key, required this.questions});
-  final List<JsonMap> questions;
-  @override
-  State<UserInputDialog> createState() => _UserInputDialogState();
-}
-
-class _UserInputDialogState extends State<UserInputDialog> {
-  late final _answers = {
-    for (final question in widget.questions)
-      question['id'] as String: TextEditingController(),
-  };
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('补充信息'),
-    content: SizedBox(
-      width: 480,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final question in widget.questions) ...[
-              Text(
-                question['question'] as String? ?? '',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: asMaps(question['options'])
-                    .map(
-                      (option) => ActionChip(
-                        label: Text(option['label'] as String? ?? ''),
-                        tooltip: option['description'] as String?,
-                        onPressed: () {
-                          _answers[question['id']]!.text =
-                              option['label'] as String;
-                        },
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _answers[question['id']],
-                obscureText: question['isSecret'] == true,
-                decoration: const InputDecoration(labelText: '你的回答'),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ],
-        ),
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('稍后回答'),
-      ),
-      FilledButton(
-        onPressed: () => Navigator.pop(context, <String, dynamic>{
-          'answers': {
-            for (final entry in _answers.entries)
-              entry.key: {
-                'answers': [entry.value.text],
-              },
-          },
-        }),
-        child: const Text('提交回答'),
-      ),
-    ],
-  );
-  @override
-  void dispose() {
-    for (final answer in _answers.values) {
-      answer.dispose();
-    }
-    super.dispose();
   }
 }

@@ -28,6 +28,7 @@ CodexLink 是面向个人的自托管 Codex 远程客户端。电脑运行一个
 
 - **接续已有会话**：列出本机不同目录、来源和模型提供商的会话，支持标题搜索、原生项目筛选、下拉刷新、自动分页和归档查看；保留原会话 ID 与配置。
 - **远程执行与干预**：实时显示中间说明、最终回复及工具活动，处理审批、中断轮次，或通过原生 steer 引导正在执行的轮次。
+- **选项问答**：支持等待回答的原生问题与执行中的异步问题；显示选项说明、多个问题、自由回答和遮蔽的私密输入，提交时保留聊天草稿、附件与 Goal 设置。
 - **文件与图片附件**：App 文件选择、网页拖放和剪贴板真实文件/图片粘贴；支持上传进度、取消、重试与图片预览。上传完成后仍需发送才会提交附件。
 - **会话权限切换**：只读、默认、自动审查、完全访问四档对接 Codex 原生设置，遵守管理策略，跨客户端同步，保留已有自定义权限。
 - **原生 Goal**：输入框切换目标模式，将当前文字提交为 Codex Goal；可查看、编辑、暂停、恢复和删除，保留真实预算与状态。
@@ -43,6 +44,12 @@ CodexLink 是面向个人的自托管 Codex 远程客户端。电脑运行一个
 网页保持打开时自动接收提醒。HTTPS/localhost 可从同一菜单申请系统通知权限；没有权限或不支持的 HTTP 地址仍显示右上角可点击气泡。后台期间的气泡会等切回页面后再计时消失。关掉页面或浏览器后不再实时送达。通知仅显示完成/失败状态，不包含回复正文。
 
 通知对应网关实际接收到的**轮次完成或失败**事件，包括在此启动、恢复或订阅过的会话；一轮结束不等于整个 Goal 完成。网关最多保留七天、256 条通知元数据，已启用的客户端断线后可补收；首次订阅只接收之后的事件。历史过期时明确提示。记录只含 ID、状态与时间，不复制聊天内容。
+
+## 回答 Codex 问题
+
+电脑网关和 Android App 更新至 v0.1.4 或更高版本后，点击待处理提问或消息中的 **回答问题**。选择选项，或在允许时选择 **其他回答**，填完所有问题后提交；不会自动提交推荐选项。私密输入遮蔽显示，问答草稿仅存于内存，关闭弹窗和断线重连后可继续填写，重启客户端或退出登录后清除。Codex 或其他客户端处理后，原生问题入口会失效。
+
+异步答案按当前会话状态作为新消息或原生 `turn/steer` 补充提交，不消耗输入框原有内容。提交结果不明时，**核对提交结果** 先查询状态，避免重复发送。旧版本 Codex 若没有输出结构化提问字段，仍可在消息中阅读问题并通过聊天输入框回答。
 
 ## 工作方式
 
@@ -230,7 +237,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # 关闭 UPX，或指定版本
-python3 scripts/build-release.py --all --no-upx --version 0.1.3
+python3 scripts/build-release.py --all --no-upx --version 0.1.4
 
 # 同一源码已完成 Flutter 检查，重试打包时跳过重复检查
 python3 scripts/build-release.py --all --skip-checks
@@ -268,7 +275,7 @@ flutter --no-version-check test --platform chrome test/web
 cd ..
 
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.3/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.4/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

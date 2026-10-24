@@ -204,3 +204,26 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 | 浏览器未授权仍启动通知通道，登出清除 | `notification_browser_starts_feed_without_permission_and_clears_session` |
 
 复现命令：`flutter test`；`flutter test --platform chrome test/web`；`.local/test-venv/bin/python -m unittest discover -s tests -v`。浏览器需要可用的 Chrome，独立前端开发服务器不提供网关通知 API。
+
+## v0.1.4 选项问答（2026-10-24）
+
+- Flutter 静态检查无问题，全量 **74 项**单元/Widget 测试与 **3 项** Chrome 平台测试通过；新增问答测试 13 项。服务端全量 **49 项** Managed 契约通过，最终 UPX Linux x64 包通过同一 49 项契约（61.987 秒）及扩展后的原生冒烟检查。
+- 原生 `item/tool/requestUserInput` 保留问题 ID、选项说明、多问题、自由/私密字段和阻塞标记；提交验证失败保留请求，同一请求并发回答仅发送一次。旧轮次完成不清理新轮次的问题，其他客户端解决后及时失效。
+- 异步 `agentMessage.questions` 在正文为空时也展示。运行中用原生 steer，空闲用新轮次，轮次冲突不自动转换；提交结果未知先查询，不重复发送，也不清空原有聊天草稿、引用和 Goal 状态。
+- Android 16 x86_64 Release APK 在模拟器实测三题选择/其他回答/私密输入，键盘弹出后可滚动并提交；同时验证异步问题显示与原生 steer 回传、覆盖安装保留登录。实际截图发现并修复了选项边框越过弹窗标题的绘制问题，修复后再次检查标题、滚动裁剪与提交。
+- 最终 x64 包的内嵌网页在 390×844 视口实测原生多问题选项/说明/其他回答/私密输入；关闭弹窗再打开后的答案通过原生 RPC 正确返回。异步问题分别实测 `/turn/steer` 和新轮次路径，聊天草稿与 Goal 开关保留。修复后的最终网页另外在 390×590 视口滚动复测，标题裁剪与提交正确；JavaScript 摘要与最终构建一致，浏览器无 warning/error。Widget 另外验证 320×640 与键盘占用时无布局异常。
+
+| Requirement | Evidence |
+| --- | --- |
+| 手机选项说明、多题必填、自由/私密回答与不落盘 | `question_options_show_descriptions_validate_all_answers_and_hide_secrets` |
+| 失败/关闭保留答案，提交期间防重复 | `question_failure_keeps_answers_when_dismissed_and_prevents_duplicate_submit` |
+| 远端解决与 HTTP 失效后禁止回答 | `question_resolved_remotely_disables_open_dialog`、`native_expiry_response_removes_stale_prompt_without_losing_other_requests` |
+| 重连、切换会话、退出时的草稿边界 | `question_reload_preserves_in_memory_draft_and_runtime_exit_expires_native_request`、`question_drafts_are_isolated_by_thread_and_logout_clears_them` |
+| 异步空正文问题可见且支持其他回答 | `async_message_renders_questions_with_empty_text_and_allows_custom_answer` |
+| 异步回答按轮次路由且保留聊天输入/Goal | `async_question_starts_idle_turn_preserving_composer`、`async_question_steers_active_turn_preserving_composer` |
+| 未知结果核对、明确失败后手动重试、轮次冲突不转新任务 | `async_unknown_submission_reconciles_without_replaying_or_changing_answer`、`async_unknown_and_failed_operations_never_resend_until_explicit_retry`、`async_turn_change_preserves_answer_and_never_falls_back_to_new_turn` |
+| 非阻塞问题不显示为任务暂停 | `nonblocking_question_keeps_task_running_indicator` |
+| 鉴权、原生答案/长度/选项验证、并发只发一次 | `test_invalid_answers_and_unauthorized_requests_preserve_pending_question`、`test_native_questions_reconnect_and_exact_reply_once` |
+| 按轮次清理、共享客户端解决与历史恢复 | `test_only_matching_turn_completion_expires_question`、`test_other_client_answer_resolves_pending_native_question`、`test_async_questions_survive_history_and_nonblocking_flag_survives_snapshot` |
+
+测试使用独立 stdio / Unix WebSocket 假 Codex，不调用计费模型。协议字段另从本机 Codex CLI 0.163.0 生成的 schema 核对。异步答案是带问题标题的用户消息，不声称存在专用的结构化回答 RPC；问答草稿与异步已回答状态不保证跨客户端重启保留。物理手机、iOS 和移动网络下的表现不以模拟器/浏览器结果替代。

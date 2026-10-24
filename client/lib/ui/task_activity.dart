@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/conversation_controller.dart';
+import '../data/api_client.dart';
 
 class TaskActivity extends StatelessWidget {
   const TaskActivity({
@@ -12,7 +13,11 @@ class TaskActivity extends StatelessWidget {
   final bool connected;
   @override
   Widget build(BuildContext context) {
-    final waiting = controller.approvals.isNotEmpty;
+    final waiting = controller.approvals.any(
+      (a) =>
+          a['method'] != 'item/tool/requestUserInput' ||
+          asMap(a['params'])['isBlocking'] != false,
+    );
     final active = connected && controller.activeTurnId != null && !waiting;
     final label = !connected
         ? '连接已断开 · 正在重新同步'

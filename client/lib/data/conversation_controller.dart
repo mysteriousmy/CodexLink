@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../platform/transport.dart' as transport;
 import 'api_client.dart';
 import 'models.dart';
+import 'questions.dart';
 
 class AttachmentUpload extends ChangeNotifier {
   AttachmentUpload(this.file, this.size, this.threadId);
@@ -59,6 +60,7 @@ class ConversationController extends ChangeNotifier {
   final Map<String, ConversationItem> _byId = {};
   final Map<String, String> _turnDiffs = {};
   List<JsonMap> approvals = [];
+  final Map<String, QuestionDraft> _questionDrafts = {};
   List<JsonMap> files = [];
   String draft = '';
   bool goalMode = false;
@@ -895,9 +897,102 @@ class ConversationController extends ChangeNotifier {
   );
 
   Future<void> answer(String id, JsonMap result) async {
-    await api.request('POST', '/api/approvals/$id', body: {'result': result});
+    try {
+      await api.request('POST', '/api/approvals/$id', body: {'result': result});
+    } on ApiError catch (error) {
+      if (error.code == 'approval_expired') {
+        approvals.removeWhere((a) => a['id'] == id);
+        if (!_disposed) notifyListeners();
+      }
+      rethrow;
+    }
     approvals.removeWhere((a) => a['id'] == id);
+    if (!_disposed) notifyListeners();
+  }
+
+  QuestionDraft questionDraft(
+    String key,
+    List<CodexQuestion> questions, {
+    String? approvalId,
+  }) {
+    key = '$threadId:$key';
+    if (!_questionDrafts.containsKey(key) && _questionDrafts.length >= 128) {
+      _questionDrafts.remove(_questionDrafts.keys.first);
+    }
+    return _questionDrafts.putIfAbsent(
+      key,
+      () => QuestionDraft(
+        threadId: threadId!,
+        questions: questions,
+        approvalId: approvalId,
+      ),
+    );
+  }
+
+  bool questionAvailable(QuestionDraft response) =>
+      !_disposed &&
+      response.threadId == threadId &&
+      canControl &&
+      !archived &&
+      (response.approvalId == null ||
+          approvals.any((a) => a['id'] == response.approvalId));
+
+  Future<void> submitQuestion(QuestionDraft response) async {
+    if (response.busy || response.sent) return;
+    if (!questionAvailable(response)) throw const ApiError('问题已处理或失效。');
+    if (sending || uncertain || loading || permissionsBusy) {
+      throw const ApiError('请先等待同步或其他提交完成，再回答问题。');
+    }
+    if (!response.valid) throw const ApiError('请回答每个问题。');
+    response.busy = true;
+    sending = true;
     notifyListeners();
+    try {
+      if (response.approvalId case final String id) {
+        await answer(id, response.result);
+      } else if (response.requestId case final String id) {
+        final status = asMap(await api.request('GET', '/api/operations/$id'));
+        if (status['state'] != 'accepted') {
+          if (status['state'] == 'failed') response.requestId = null;
+          throw ApiError(
+            status['state'] == 'failed'
+                ? '回答未发送，内容已保留，请核对当前轮次后重试。'
+                : '提交结果仍未知，请核对会话记录后再决定是否重新回答。',
+          );
+        }
+      } else {
+        final requestId = newRequestId();
+        final id = response.threadId;
+        final turn = activeTurnId;
+        response.requestId = requestId;
+        try {
+          await api.request(
+            'POST',
+            turn == null
+                ? '/api/threads/$id/turns'
+                : '/api/threads/$id/turns/$turn/steer',
+            body: {'requestId': requestId, 'text': response.message},
+          );
+        } catch (error) {
+          if (error is ApiError &&
+              error.status != null &&
+              error.status! >= 400 &&
+              error.status! < 500 &&
+              error.status != 408) {
+            response.requestId = null;
+          }
+          rethrow;
+        }
+      }
+      response.sent = true;
+      response.requestId = null;
+      response.text.clear();
+      response.selections.clear();
+    } finally {
+      response.busy = false;
+      sending = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> download(JsonMap file) => transport.downloadFile(
@@ -925,6 +1020,7 @@ class ConversationController extends ChangeNotifier {
 
   void reset() {
     _generation++;
+    _questionDrafts.clear();
     _draftTimer?.cancel();
     _clearItems();
     for (final list in _uploads.values) {

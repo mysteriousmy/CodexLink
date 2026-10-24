@@ -27,6 +27,7 @@ Real Web and Android Release UI with fictional demo conversations, projects and 
 - **Resume existing sessions.** Browse conversations across local working directories, search titles, filter by native Codex project, pull down to refresh the session list, load more history automatically, and inspect or restore archived sessions. Sessions keep their original IDs and settings.
 - **Receive task reminders.** Android can notify you while the app is in the background. Web uses system notifications when permitted and a top-right bubble otherwise. Tap a reminder to open its conversation.
 - **Keep working while away from the computer.** Stream intermediate commentary and final replies, see tool activity, respond to approvals, stop a turn, or steer an active turn without restarting it.
+- **Answer Codex questions.** Choose options with visible descriptions, provide custom answers when allowed, and answer multiple questions together. Native prompts and asynchronous questions are supported; replies preserve your composer draft, attachments and Goal settings.
 - **Send real attachments.** Choose files in the app, drop files into the web client, or paste clipboard files/images into the web composer. Upload progress, cancellation, retry and image preview are supported. An upload becomes a message attachment only when you send it.
 - **Choose session permissions.** Read only, Default, Auto-review and Full access use native Codex settings, respect managed restrictions and synchronize across clients. Existing custom settings are preserved.
 - **Use native Goals.** Toggle Goal mode in the composer and send the current text as a native Codex goal. View, edit, pause, resume and remove an existing goal. Goals are not client-only to-do items.
@@ -42,6 +43,12 @@ Upgrade both the gateway and Android app to v0.1.3 or later. Open the session-li
 On Web, an open tab receives events automatically. Allow notifications from the same menu on HTTPS/localhost. Without permission, or on unsupported HTTP origins, a clickable bubble appears at the top right; background bubbles wait until the page becomes visible. Closing the browser/tab ends live delivery. Notification titles contain completion/failure status, not reply contents.
 
 Reminders correspond to completed or failed **turns** received by this gateway, including sessions started or resumed/subscribed here. A turn completion does not mean an entire Goal has finished. The gateway retains up to 256 notification records for seven days; reconnecting clients can catch up, while first-time subscriptions start with future events. Expired history is reported explicitly. The journal contains IDs/status/time only, not another copy of chat history.
+
+## Answer questions
+
+Upgrade the gateway and Android app to v0.1.4 or later. Tap **回答问题** on a pending prompt or an asynchronous question in the conversation. Select an option or choose **其他回答** when offered, then answer every question and submit. Options are never submitted automatically. Secret fields obscure their contents; question drafts stay in memory and survive dialog dismissal and reconnects, but are cleared when the client restarts or logs out. Native prompts disappear when Codex or another client resolves them.
+
+Asynchronous replies are sent as a normal message or a `turn/steer` supplement to the current turn, without consuming your existing composer content. If submission is uncertain, **核对提交结果** queries its status instead of resending. If a question was sent by an older Codex version without structured question metadata, its ordinary message remains readable and can be answered in the composer.
 
 ## How it works
 
@@ -228,7 +235,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.3
+python3 scripts/build-release.py --all --no-upx --version 0.1.4
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -275,7 +282,7 @@ cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.3/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.4/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

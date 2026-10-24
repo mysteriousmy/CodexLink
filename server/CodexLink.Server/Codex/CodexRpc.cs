@@ -41,7 +41,7 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
                 Shared = transport.Shared;
                 reader = ReadAsync(transport, stoppingToken);
                 var result = await CallCoreAsync("initialize", Json.Object(
-                    ("clientInfo", Json.Object(("name", "codexlink"), ("version", "0.1.3"))),
+                    ("clientInfo", Json.Object(("name", "codexlink"), ("version", "0.1.4"))),
                     ("capabilities", Json.Object(("experimentalApi", true)))), stoppingToken);
                 Version = result.String("userAgent");
                 await WriteAsync(Json.Object(("method", "initialized")), stoppingToken);
@@ -182,7 +182,9 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
             if (method is "turn/completed")
             {
                 var threadId = parameters.String("threadId");
-                foreach (var item in _approvals.Where(x => x.Value["params"].String("threadId") == threadId).ToArray())
+                var turnId = parameters?["turn"].String("id");
+                foreach (var item in _approvals.Where(x => x.Value["params"].String("threadId") == threadId &&
+                    x.Value["params"].String("turnId") == turnId).ToArray())
                     if (_approvals.TryRemove(item.Key, out _)) events.Publish("approval/resolved", Json.Object(("id", item.Key)));
             }
             Notification?.Invoke(method, parameters);
@@ -194,9 +196,38 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
 
     public async Task AnswerAsync(string id, JsonNode result)
     {
-        if (!_approvals.TryRemove(id, out var approval)) throw new ApiException(409, "approval_expired", "请求已处理或失效。");
-        try { await WriteAsync(Json.Object(("id", approval["rpcId"].Copy()), ("result", result)), CancellationToken.None); }
-        finally { events.Publish("approval/resolved", Json.Object(("id", id))); }
+        // Validate before consuming the request. The write lock also prevents two
+        // devices from answering the same native request concurrently.
+        await _write.WaitAsync();
+        try
+        {
+            if (!_approvals.TryGetValue(id, out var approval)) throw new ApiException(409, "approval_expired", "请求已处理或失效。");
+            if (approval.String("method") == "item/tool/requestUserInput") ValidateAnswers(approval["params"], result);
+            var transport = _transport ?? throw new ApiException(503, "codex_unavailable", "Codex 连接不可用。");
+            if (!_approvals.TryRemove(id, out _)) throw new ApiException(409, "approval_expired", "请求已处理或失效。");
+            // A failed write may already have reached Codex; do not offer a blind retry.
+            try { await transport.SendAsync(Json.Compact(Json.Object(("id", approval["rpcId"].Copy()), ("result", result))), CancellationToken.None); }
+            finally { events.Publish("approval/resolved", Json.Object(("id", id))); }
+        }
+        finally { _write.Release(); }
+    }
+
+    private static void ValidateAnswers(JsonNode? parameters, JsonNode result)
+    {
+        if (parameters?["questions"] is not JsonArray { Count: > 0 } questions || result["answers"] is not JsonObject answers ||
+            answers.Count != questions.Count)
+            throw new ApiException(400, "invalid_answers", "请回答每个问题。");
+        foreach (var question in questions)
+        {
+            var questionId = question.String("id");
+            if (questionId is null || answers[questionId] is not JsonObject response || response["answers"] is not JsonArray { Count: 1 } values ||
+                values[0] is not JsonValue value || !value.TryGetValue<string>(out var answer) ||
+                string.IsNullOrWhiteSpace(answer) || answer.Length > 20_000)
+                throw new ApiException(400, "invalid_answers", "每个问题需要一个非空回答，最多 20,000 字符。");
+            if (question?["options"] is JsonArray { Count: > 0 } options && question?["isOther"]?.GetValue<bool>() != true &&
+                !options.Any(o => o.String("label") == answer))
+                throw new ApiException(400, "invalid_answers", "请从问题提供的选项中选择回答。");
+        }
     }
 
 }

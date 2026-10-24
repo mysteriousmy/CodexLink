@@ -4,6 +4,7 @@
 
 - `data/app_controller.dart`：连接、认证、项目/会话、事件订阅与重连、账号数据。
 - `data/conversation_controller.dart`：当前会话、分页、草稿、附件、消息/steer、Goal 和审批。
+- `data/questions.dart` / `ui/question_prompt.dart`：原生与异步问答、内存草稿、选项说明、多问题/自由/私密输入及结果核对；网络提交仍由会话 controller 统一负责。
 - `data/models.dart`：Token 语义与每条消息的局部更新；流式增量合并后约每 40 ms 通知。
 - `ui/workspace_picker.dart`：Codex 原生项目/创建同步、主机目录选择。
 - `data/file_diff.dart` / `ui/diff_view.dart`：增删/重命名与行号解析、实时/最终摘要、全屏彩色 Diff。

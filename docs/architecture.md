@@ -195,3 +195,11 @@ Android `TaskNotificationService` 是用户明确开启的 specialUse 前台服�
 Web 同源 EventSource 独立于聊天连接，页面隐藏时保留。获得系统权限后优先调用专用 `/notifications/` scope 的 service worker 显示/打开通知；其脚本不缓存或拦截资源，不覆盖 Flutter worker。系统不支持/权限未授予/显示失败时进入最多三条右上角气泡，隐藏期间不计消失时间；会话打开与当前浏览器登录身份绑定，退出清除游标及待打开会话。页面关闭后的实时 Web Push 和 iOS 后台推送尚未实现。
 
 平台权限依据：[Android 前台服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types)、[Doze 与电池豁免](https://developer.android.com/training/monitoring-device-state/doze-standby)、[浏览器系统通知](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification)。
+
+## 选项问答（v0.1.4）
+
+`item/tool/requestUserInput` 保留原生请求 ID、问题 ID、选项说明、`isOther`、`isSecret` 与 `isBlocking`。回答经现有鉴权 `/api/approvals/{id}` 提交；服务端验证全部问题、单个非空答案、20,000 字符上限及封闭选项，再以原生 JSON-RPC result 返回。验证失败保留请求；写入串行，重复提交返回已失效。已开始写入但传输失败时不恢复请求，避免重复回答。`serverRequest/resolved` 与对应轮次完成清理入口，其他轮次完成不误清请求。非阻塞问题不停止任务动效，也不按超时自动选答案。
+
+Codex CLI 0.163.0 生成的 schema 另有 `agentMessage.questions: AsyncUserInputQuestion[]`（title/options），没有对应的专用回答 RPC。本客户端据此将答案和问题标题组成普通用户消息：活动轮次通过捕获的 `expectedTurnId` 调用 `turn/steer`，空闲时 `turn/start`；复用既有 operation ID 与查询接口。轮次冲突不自动转新轮次，超时/断线只核对状态，不自动重发。异步问题不宣称具有原生审批的失效状态；本客户端本次发送成功后显示“回答已发送”，客户端重启后可再次补充。
+
+共享 Flutter 问答表单按协议显示单选、说明、自由回答、多问题与私密字段，不默认替用户选中/提交。最多 128 组问答草稿保存在 controller 内存中；切换会话或关闭弹窗可继续填写，客户端重启/退出清除，不写 SharedPreferences。网络失败保留内容；问题在另一客户端解决后，已打开的表单禁止提交。提交过程不读取或清理聊天草稿、附件、引用、模型、权限与 Goal。
