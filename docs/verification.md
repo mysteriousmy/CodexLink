@@ -186,6 +186,8 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 - 最终 UPX Linux x64 发布包通过全部 44 项网关契约和原生冒烟检查；其内嵌网页与最终构建的 JavaScript 摘要一致。在此包中再次完成真实任务通知入队，再通过 service worker 的通知点击事件打开对应会话，确认请求和界面均正确，无需调整窗口。该点击由自动化合成，浏览器因此拒绝主动抢焦点；本次验证证明事件路由，不等于人工点击桌面通知。denied 权限下气泡去重、关闭也通过最终包复测。
 - 在 App 后台撤销测试设备凭据并重启独立网关后，`android_unauthorized_notification_feed_stops_background_service` 验证后台服务在 1.54 秒内停止，不继续无限鉴权重试。
 - 正式 x86_64 APK 再次覆盖安装后登录与权限保留；修正开启服务瞬间误报“未运行”的状态快照，并实际验证 `android_enable_reports_starting_without_false_stopped_error`。`android_doze_task_notification_before_wake` 在最终 APK 中再次通过：0.56 秒收到新会话的完成通知，采样时仍处于 Doze 且尚未唤醒。
+- `android_notification_click_and_logout_clear_service_and_cards` 验证正式 APK 的通知打开对应会话；退出连接后回到登录页，后台服务与活动通知均已清除。
+- [v0.1.3 四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40071167179)全部通过，包含通知 JSON/SSE 补收及内嵌 worker 检查；两个 Linux 架构各通过完整 44 项网关契约。四个 APK 的 ABI、递增版本号及与旧版一致的签名验证通过；GitHub 上 9 个资产的 SHA-256 与本地一致。源码和包内共 1800 份内容的私密值检查为 0 命中，源码及 Git 历史扫描无密钥泄漏。
 - 真机厂商冻结、蜂窝漫游、主机休眠、长时间后台稳定性仍需实际设备验证。模拟器 Doze 结果不代表所有手机都能以相同延迟送达；强行停止 App 后需重新打开。Web 实时提醒要求页面打开，iOS 后台推送未实现。
 
 | Requirement | Evidence |
