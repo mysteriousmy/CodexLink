@@ -50,7 +50,7 @@ Flutter bootstrap 固定通用 CanvasKit；内嵌时排除 Chromium/WebParagraph
 
 ## 验证与限制
 
-已有 Linux 产品验证覆盖 32 项网关黑盒契约、真实 Codex 的附件/steer/Goal/用量，以及 Android/Web；详细证据和最新发布产物检查见 [验证记录](verification.md)。正式发布要求测试实际压缩后的产物，并区分本机运行、QEMU/Wine 模拟和仅编译。没有 macOS/iOS 发布包。
+已有 Linux 产品验证覆盖 37 项网关黑盒契约、真实 Codex 的附件/steer/Goal/用量/权限，以及 Android/Web；详细证据和最新发布产物检查见 [验证记录](verification.md)。正式发布要求测试实际压缩后的产物，并区分本机运行、QEMU/Wine 模拟和仅编译。没有 macOS/iOS 发布包。
 
 AOT 可以改善部署和启动，并不保证所有长期吞吐高于 JIT；模型生成耗时也不属于网关优化结果。长时间负载、真实手机网络和不同附件体积的内存曲线仍需持续验证。
 

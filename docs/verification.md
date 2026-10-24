@@ -145,4 +145,6 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 - 权限契约覆盖：`test_four_permission_presets_confirm_actual_settings_and_persist_for_turns`、`test_custom_existing_permissions_are_displayed_and_never_overwritten_on_resume`、`test_permission_changes_reject_active_turn_and_active_goal`、`test_permissions_respect_managed_profiles_reviewers_and_authentication`、`test_external_permission_change_updates_snapshot_and_live_clients`。
 - Flutter 覆盖选择器提交及管理策略禁用、真实确认前不更新状态、执行中禁用、320/390/1100px 与 1.3 倍字号，以及 `new_permission_events_win_over_older_http_responses` 防止旧 HTTP 结果覆盖新事件。静态分析无问题，40 项 Flutter 测试与 2 项 Chrome 粘贴测试通过。
 - 本机真实共享 Codex 在独立临时目录中验证四档更新，检查原生 sandbox、approvalPolicy、approvalsReviewer、activePermissionProfile；没有提交模型轮次或修改用户原有会话。musl x64 的 UPX 程序同样完成这条真实协议验证。
-- `scripts/smoke-release.py` 为四个平台的实际发布包增加四档权限检查。完整网关契约增至 37 项；最终平台结果记录在对应 [Release](https://github.com/mysteriousmy/CodexLink/releases/tag/v0.1.1) 中。
+- [v0.1.1 四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40047630023)全部通过。Linux x64/ARM64、Windows x64/ARM64 下载实际归档并核对 SHA-256，各自验证初始化、鉴权、内嵌 Web、轮次与四档权限；两个 Linux 架构另各通过完整 37 项黑盒契约。本机最终 UPX 压缩的 musl x64 产物同样通过 37 项测试。Windows 检查使用假 Codex，不代替真实模型长任务验收。
+- 四个 Android APK 的版本为 0.1.1，ABI 正确且签名证书与 v0.1.0 相同。只读 Pixel 模拟器先安装并登录 v0.1.0，再覆盖安装新 x86_64 APK，登录状态保留；App 显示 Web 已设置的自动审查，切换只读后服务器确认，已打开的 Web 页面实时同步。该流程只使用独立虚构会话。
+- 全部八个安装包及 SHA256SUMS 的 GitHub 资产摘要与本地文件一致。源码、未压缩原生文件及归档内部共 1778 份内容的实际私密值检查为 0 命中；源码 Gitleaks 检查同样通过。
