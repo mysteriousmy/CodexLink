@@ -227,3 +227,6 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 | 按轮次清理、共享客户端解决与历史恢复 | `test_only_matching_turn_completion_expires_question`、`test_other_client_answer_resolves_pending_native_question`、`test_async_questions_survive_history_and_nonblocking_flag_survives_snapshot` |
 
 测试使用独立 stdio / Unix WebSocket 假 Codex，不调用计费模型。协议字段另从本机 Codex CLI 0.163.0 生成的 schema 核对。异步答案是带问题标题的用户消息，不声称存在专用的结构化回答 RPC；问答草稿与异步已回答状态不保证跨客户端重启保留。物理手机、iOS 和移动网络下的表现不以模拟器/浏览器结果替代。
+
+- [v0.1.4 四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40087525450)全部通过：实际安装包在 Linux x64/ARM64、Windows x64/ARM64 上验证原生问题回答与异步问题历史/steer，同时保留原有权限、通知及内嵌网页检查。两个 Linux 架构另各通过完整 49 项契约。
+- 最终四个 APK 的 ABI、签名及递增版本号验证通过，签名与旧版一致。最终 x86_64 APK 覆盖安装后再次验证登录保留和完整三题原生回传。GitHub 上 9 个资产的 SHA-256 与本地一致；源码、原生文件和包内共 1804 份内容的私密值检查为 0 命中，源码及 Git 历史扫描无密钥泄漏。
