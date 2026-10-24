@@ -311,88 +311,105 @@ class _HomeScreenState extends State<HomeScreen> {
           if (controller.loadingThreads)
             const LinearProgressIndicator(minHeight: 2),
           Expanded(
-            child: controller.threads.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        controller.loadingThreads
-                            ? '正在读取本机会话…'
-                            : '没有匹配的会话\n可切换范围或清除搜索条件',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: colors.onSurfaceVariant),
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    key: const ValueKey('thread-list'),
-                    controller: _threadScroll,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    itemCount:
-                        controller.threads.length +
-                        (controller.threadCursor == null ? 0 : 1),
-                    itemBuilder: (context, index) {
-                      if (index == controller.threads.length) {
-                        if (controller.threadListError != null) {
-                          return TextButton.icon(
-                            onPressed: () => controller.loadThreads(more: true),
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('加载失败，重试'),
+            child: RefreshIndicator(
+              onRefresh: controller.loadThreads,
+              child: controller.threads.isEmpty
+                  ? CustomScrollView(
+                      key: const ValueKey('thread-list'),
+                      controller: _threadScroll,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                controller.loadingThreads
+                                    ? '正在读取本机会话…'
+                                    : '没有匹配的会话\n可切换范围或清除搜索条件',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      key: const ValueKey('thread-list'),
+                      controller: _threadScroll,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      itemCount:
+                          controller.threads.length +
+                          (controller.threadCursor == null ? 0 : 1),
+                      itemBuilder: (context, index) {
+                        if (index == controller.threads.length) {
+                          if (controller.threadListError != null) {
+                            return TextButton.icon(
+                              onPressed: () =>
+                                  controller.loadThreads(more: true),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('加载失败，重试'),
+                            );
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Center(
+                              child: controller.loadingThreads
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const SizedBox(height: 20),
+                            ),
                           );
                         }
+                        final thread = controller.threads[index];
+                        final selected =
+                            controller.conversation.threadId == thread['id'];
+                        final title = threadTitle(thread);
+                        final active =
+                            asMap(thread['status'])['type'] == 'active';
                         return Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Center(
-                            child: controller.loadingThreads
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const SizedBox(height: 20),
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: ListTile(
+                            selected: selected,
+                            selectedTileColor: colors.secondaryContainer
+                                .withValues(alpha: .7),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            leading: Icon(
+                              active
+                                  ? Icons.motion_photos_on_rounded
+                                  : Icons.chat_bubble_outline_rounded,
+                              size: 19,
+                            ),
+                            title: Text(
+                              title.replaceAll('\n', ' '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            subtitle: Text(
+                              '${threadLocation(thread)} · ${threadSourceLabel(thread)}\n${_time(thread['updatedAt'])}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            onTap: () => _select(thread['id'] as String),
                           ),
                         );
-                      }
-                      final thread = controller.threads[index];
-                      final selected =
-                          controller.conversation.threadId == thread['id'];
-                      final title = threadTitle(thread);
-                      final active =
-                          asMap(thread['status'])['type'] == 'active';
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: ListTile(
-                          selected: selected,
-                          selectedTileColor: colors.secondaryContainer
-                              .withValues(alpha: .7),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          leading: Icon(
-                            active
-                                ? Icons.motion_photos_on_rounded
-                                : Icons.chat_bubble_outline_rounded,
-                            size: 19,
-                          ),
-                          title: Text(
-                            title.replaceAll('\n', ' '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          subtitle: Text(
-                            '${threadLocation(thread)} · ${threadSourceLabel(thread)}\n${_time(thread['updatedAt'])}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onTap: () => _select(thread['id'] as String),
-                        ),
-                      );
-                    },
-                  ),
+                      },
+                    ),
+            ),
           ),
           const Divider(height: 1),
           if (compact)

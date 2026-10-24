@@ -24,7 +24,7 @@ CodexLink 是面向个人的自托管 Codex 远程客户端。电脑运行一个
 
 ## 主要功能
 
-- **接续已有会话**：列出本机不同目录、来源和模型提供商的会话，支持标题搜索、原生项目筛选、自动分页和归档查看；保留原会话 ID 与配置。
+- **接续已有会话**：列出本机不同目录、来源和模型提供商的会话，支持标题搜索、原生项目筛选、下拉刷新、自动分页和归档查看；保留原会话 ID 与配置。
 - **远程执行与干预**：实时显示中间说明、最终回复及工具活动，处理审批、中断轮次，或通过原生 steer 引导正在执行的轮次。
 - **文件与图片附件**：App 文件选择、网页拖放和剪贴板真实文件/图片粘贴；支持上传进度、取消、重试与图片预览。上传完成后仍需发送才会提交附件。
 - **会话权限切换**：只读、默认、自动审查、完全访问四档对接 Codex 原生设置，遵守管理策略，跨客户端同步，保留已有自定义权限。
@@ -137,7 +137,7 @@ App 和网页输入框的模型旁提供盾牌权限选择器：
 
 附件先上传后发送。默认每个文件 25 MiB、每条消息最多 10 个文件/100 MiB、附件总存储 1 GiB。网页粘贴必须包含真实文件或图片；单独的路径字符串不能授予浏览器读取本地文件的权限。普通文本按文本粘贴。
 
-会话列表接近底部自动加载更多，会话内容向上阅读时加载更早历史并保留位置。点击文件变更摘要可全屏阅读 Diff。Android 在会话中按系统返回回到列表；键盘打开时系统先收起键盘，草稿与附件仍保留。
+会话列表在顶部下拉可刷新，空列表或内容较少时同样可用；刷新保留搜索、筛选、当前会话和草稿。接近底部自动加载更多，会话内容向上阅读时加载更早历史并保留位置。点击文件变更摘要可全屏阅读 Diff。Android 在会话中按系统返回回到列表；键盘打开时系统先收起键盘，草稿与附件仍保留。
 
 <details>
 <summary>查看四档权限选择器</summary>
@@ -220,7 +220,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # 关闭 UPX，或指定版本
-python3 scripts/build-release.py --all --no-upx --version 0.1.1
+python3 scripts/build-release.py --all --no-upx --version 0.1.2
 
 # 同一源码已完成 Flutter 检查，重试打包时跳过重复检查
 python3 scripts/build-release.py --all --skip-checks
@@ -258,7 +258,7 @@ flutter --no-version-check test --platform chrome test/web/clipboard_test.dart
 cd ..
 
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.1/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.2/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

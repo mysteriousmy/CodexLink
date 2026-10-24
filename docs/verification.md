@@ -148,3 +148,9 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 - [v0.1.1 四平台原生 Release 验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40047630023)全部通过。Linux x64/ARM64、Windows x64/ARM64 下载实际归档并核对 SHA-256，各自验证初始化、鉴权、内嵌 Web、轮次与四档权限；两个 Linux 架构另各通过完整 37 项黑盒契约。本机最终 UPX 压缩的 musl x64 产物同样通过 37 项测试。Windows 检查使用假 Codex，不代替真实模型长任务验收。
 - 四个 Android APK 的版本为 0.1.1，ABI 正确且签名证书与 v0.1.0 相同。只读 Pixel 模拟器先安装并登录 v0.1.0，再覆盖安装新 x86_64 APK，登录状态保留；App 显示 Web 已设置的自动审查，切换只读后服务器确认，已打开的 Web 页面实时同步。该流程只使用独立虚构会话。
 - 全部八个安装包及 SHA256SUMS 的 GitHub 资产摘要与本地文件一致。源码、未压缩原生文件及归档内部共 1778 份内容的实际私密值检查为 0 命中；源码 Gitleaks 检查同样通过。
+
+## v0.1.2 会话列表下拉刷新
+
+- App/Web 会话列表顶部支持下拉刷新，包括空列表和短列表；复用现有列表读取协议，保留搜索、项目/归档筛选、当前会话与草稿。
+- 组件测试通过：`pull_refresh_empty_list`、`pull_refresh_short_list`、`pull_refresh_preserves_filters_and_ignores_stale_page`、`pull_refresh_failure_keeps_list_and_allows_retry`。通过实际下拉手势验证加载动画、一次请求、结果替换、旧分页不覆盖新结果，以及失败提示和重试。
+- Flutter 静态分析无问题，44 项单元/组件测试与 2 项 Chrome 剪贴板测试通过；原有会话自动分页、历史加载和手机布局回归仍通过。

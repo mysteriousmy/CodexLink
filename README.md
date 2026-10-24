@@ -24,7 +24,7 @@ Real Web and Android Release UI with fictional demo conversations, projects and 
 
 ## What you can do
 
-- **Resume existing sessions.** Browse conversations across local working directories, search titles, filter by native Codex project, load more history automatically, and inspect or restore archived sessions. Sessions keep their original IDs and settings.
+- **Resume existing sessions.** Browse conversations across local working directories, search titles, filter by native Codex project, pull down to refresh the session list, load more history automatically, and inspect or restore archived sessions. Sessions keep their original IDs and settings.
 - **Keep working while away from the computer.** Stream intermediate commentary and final replies, see tool activity, respond to approvals, stop a turn, or steer an active turn without restarting it.
 - **Send real attachments.** Choose files in the app, drop files into the web client, or paste clipboard files/images into the web composer. Upload progress, cancellation, retry and image preview are supported. An upload becomes a message attachment only when you send it.
 - **Choose session permissions.** Read only, Default, Auto-review and Full access use native Codex settings, respect managed restrictions and synchronize across clients. Existing custom settings are preserved.
@@ -219,7 +219,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.1
+python3 scripts/build-release.py --all --no-upx --version 0.1.2
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -266,7 +266,7 @@ cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.1/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.2/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

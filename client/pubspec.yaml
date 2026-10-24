@@ -1,7 +1,7 @@
 name: codex_link
 description: "A personal Codex remote client for Android, iOS and Web."
 publish_to: 'none'
-version: 0.1.1+2
+version: 0.1.2+3
 
 environment:
   sdk: ^3.13.4

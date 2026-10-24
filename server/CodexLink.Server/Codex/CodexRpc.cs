@@ -41,7 +41,7 @@ public sealed class CodexRpc(Configuration configuration, EventHub events, Media
                 Shared = transport.Shared;
                 reader = ReadAsync(transport, stoppingToken);
                 var result = await CallCoreAsync("initialize", Json.Object(
-                    ("clientInfo", Json.Object(("name", "codexlink"), ("version", "0.1.1"))),
+                    ("clientInfo", Json.Object(("name", "codexlink"), ("version", "0.1.2"))),
                     ("capabilities", Json.Object(("experimentalApi", true)))), stoppingToken);
                 Version = result.String("userAgent");
                 await WriteAsync(Json.Object(("method", "initialized")), stoppingToken);
