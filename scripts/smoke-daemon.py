@@ -100,6 +100,12 @@ def main():
         except BaseException:
             logfile = root / 'gateway.log'
             if logfile.exists(): print(logfile.read_text(errors='replace').replace(token, '[redacted]')[-6000:], flush=True)
+            # This home is isolated and unauthenticated. Preserve the failing
+            # result, but expose the CLI's own reason before final cleanup.
+            diagnostic = daemon('start')
+            print('Isolated daemon diagnostic:', diagnostic.returncode,
+                  diagnostic.stdout.replace(token, '[redacted]'),
+                  diagnostic.stderr.replace(token, '[redacted]'), flush=True)
             raise
         finally:
             if process and process.poll() is None:
