@@ -274,6 +274,22 @@ def call(method, p):
                     event("item/completed", threadId=tid, turnId=t["id"], item=item)
                 finish(tid)
             later(rich)
+        elif text == "notification-duplicate":
+            def duplicate():
+                finish(tid)
+                event("turn/completed", threadId=tid, turn=t)
+            later(duplicate)
+        elif text == "notification-burst":
+            def completions():
+                for i in range(270):
+                    event("turn/completed", threadId=tid, turn={"id": f"notice-{i}", "status": "completed", "items": []})
+                finish(tid)
+            later(completions)
+        elif text in ["notification-failed", "notification-interrupted"]:
+            def terminal():
+                t["status"] = "failed" if text.endswith("failed") else "interrupted"
+                event("turn/completed", threadId=tid, turn=t)
+            later(terminal)
         elif text not in ["hold", "hold disconnect"]:
             later(lambda: finish(tid), 0.4 if text == "delayed" else 0.05)
         return {"turn": t}

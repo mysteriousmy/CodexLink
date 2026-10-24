@@ -9,6 +9,7 @@ import '../data/models.dart';
 import 'conversation_screen.dart';
 import 'usage_panels.dart';
 import 'workspace_picker.dart';
+import 'task_notifications.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.controller});
@@ -27,7 +28,21 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     controller.error.addListener(_showError);
+    controller.notifications.openedThread.addListener(_openNotification);
     _threadScroll.addListener(_loadMoreThreads);
+  }
+
+  void _openNotification() {
+    if (!mounted || controller.notifications.openedThread.value == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final thread = controller.notifications.openedThread.value;
+      if (!mounted || !controller.usable || thread == null) return;
+      controller.notifications.openedThread.value = null;
+      unawaited(_select(thread));
+    });
+    // A system notification can be clicked while the page is already focused.
+    // Post-frame callbacks alone do not request a new frame in an idle UI.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _loadMoreThreads() {
@@ -94,6 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadMoreThreads());
+    if (controller.notifications.openedThread.value != null) {
+      _openNotification();
+    }
     if (!controller.initialized) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -112,24 +130,47 @@ class _HomeScreenState extends State<HomeScreen> {
           },
           child: Scaffold(
             body: SafeArea(
-              child: Row(
+              child: Stack(
                 children: [
-                  if (wide || !_showConversation)
-                    SizedBox(
-                      width: wide ? 288 : constraints.maxWidth,
-                      child: _sidebar(context, compact: !wide),
-                    ),
-                  if (wide) const VerticalDivider(width: 1),
-                  if (wide || _showConversation)
-                    Expanded(
-                      child: ConversationScreen(
-                        appController: controller,
-                        onBack: wide
-                            ? null
-                            : () => setState(() => _showConversation = false),
-                        onCreate: _create,
+                  Row(
+                    children: [
+                      if (wide || !_showConversation)
+                        SizedBox(
+                          width: wide ? 288 : constraints.maxWidth,
+                          child: _sidebar(context, compact: !wide),
+                        ),
+                      if (wide) const VerticalDivider(width: 1),
+                      if (wide || _showConversation)
+                        Expanded(
+                          child: ConversationScreen(
+                            appController: controller,
+                            onBack: wide
+                                ? null
+                                : () =>
+                                      setState(() => _showConversation = false),
+                            onCreate: _create,
+                          ),
+                        ),
+                    ],
+                  ),
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    width: (constraints.maxWidth - 24).clamp(0, 360).toDouble(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: (constraints.maxHeight - 24).clamp(
+                          0,
+                          double.infinity,
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        child: TaskNotificationToasts(
+                          controller: controller.notifications,
+                        ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -423,6 +464,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   Flexible(child: ConnectionIndicator(controller: controller)),
                   const Spacer(),
                   IconButton(
+                    tooltip: '任务通知',
+                    onPressed: () => showTaskNotificationSettings(
+                      context,
+                      controller.notifications,
+                    ),
+                    icon: const Icon(Icons.notifications_outlined, size: 18),
+                  ),
+                  IconButton(
                     tooltip: '退出连接',
                     onPressed: () => _perform(controller.logout),
                     icon: const Icon(Icons.logout_rounded, size: 18),
@@ -481,6 +530,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       _perform(controller.loadThreads);
                     case 'theme':
                       controller.toggleTheme();
+                    case 'notifications':
+                      showTaskNotificationSettings(
+                        context,
+                        controller.notifications,
+                      );
                     case 'logout':
                       _perform(controller.logout);
                   }
@@ -501,6 +555,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   PopupMenuItem(
                     value: 'theme',
                     child: Text(controller.dark ? '浅色模式' : '深色模式'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'notifications',
+                    child: Text('任务通知'),
                   ),
                   const PopupMenuItem(value: 'logout', child: Text('退出连接')),
                 ],
@@ -667,6 +725,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _search.dispose();
     _threadScroll.dispose();
     controller.error.removeListener(_showError);
+    controller.notifications.openedThread.removeListener(_openNotification);
     super.dispose();
   }
 }

@@ -10,6 +10,7 @@
 - `ui/composer_commands.dart`：技能与文件选择、MCP 目录；/goal 切换输入框目标模式。
 - `ui/file_preview.dart` / `platform/svg_preview_*`：鉴权图片/工作区文件预览与下载；Web 图片上下文、移动端禁脚本 WebView 保留 SVG 动画。
 - `platform/transport_*`：原生安全存储/Bearer、Web Cookie、二进制上传、文件下载与拖放。
+- `data/task_notification_controller.dart` / `platform/task_notifications_*`：通知权限、点击跳转和有界气泡；Android 原生前台服务保持独立后台连接，Web EventSource/专用 worker 使用同源 Cookie。
 - `ui/`：会话、输入区、审批、图片预览、用量面板与连接页。
 
 流式文本完成后解析 Markdown；生成期间避免每个 token 重新解析整段 Markdown。长历史按页取回并惰性构建。文件不以 Base64 携带；浏览器利用 Blob，原生端使用字节流。
@@ -36,6 +37,6 @@ Web 自带 Roboto 和 Noto 中文、等宽、符号和彩色 Emoji 字体，避�
 
 Web 输入框获得焦点时，粘贴事件中的真实文件/图片直接进入现有流式上传队列，带有文件的同次粘贴不会再插入路径文字；普通文本保持原有粘贴行为。监听器随输入框销毁清理，在弹窗或其他输入框中不接管粘贴。浏览器仅提供路径字符串时无法读取该路径指向的本地文件，此时需用文件选择或拖放。
 
-浏览器专项测试：`flutter --no-version-check test --platform chrome test/web/clipboard_test.dart`（必要时设置 `CHROME_EXECUTABLE`）。
+浏览器专项测试：`flutter --no-version-check test --platform chrome test/web`（必要时设置 `CHROME_EXECUTABLE`）。
 
 手机会话页用 `PopScope` 接管系统返回，返回列表并保留会话、草稿和附件；列表页正常允许退出。账号/预览等路由先关闭自身，输入法先由系统收起。

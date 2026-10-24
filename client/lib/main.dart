@@ -54,6 +54,11 @@ class _CodexLinkAppState extends State<CodexLinkApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) widget.controller.foreground();
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      widget.controller.background();
+    }
   }
 
   ThemeData theme(Brightness brightness) {

@@ -72,7 +72,7 @@ def main():
                 except urllib.error.HTTPError as error:
                     assert error.code == 401
                 for path, mime in [('/', 'text/html'), ('/canvaskit/canvaskit.wasm', 'application/wasm'),
-                                   ('/fonts/CodexLinkSans.woff2', 'font/woff2')]:
+                                   ('/fonts/CodexLinkSans.woff2', 'font/woff2'), ('/task-notifications.js', 'javascript')]:
                     status, headers, content = request(path, auth=False)
                     assert status == 200 and mime in headers['Content-Type'] and content
                 status, _, body = request('/api/threads', {'projectId': 'codex-project'})
@@ -81,10 +81,31 @@ def main():
                 for mode in ('read-only', 'default', 'auto-review', 'full-access'):
                     status, _, body = request(f'/api/threads/{thread}/permissions', {'preset':mode}, method='PUT')
                     assert status == 200 and json.loads(body)['preset'] == mode
+                baseline = json.loads(request('/api/notifications')[2])
+                assert baseline['items'] == []
                 status, _, _ = request(f'/api/threads/{thread}/turns',
                     {'requestId': str(uuid.uuid4()), 'text': 'UTF-8 中文 smoke', 'attachmentIds': []})
                 assert status in (200, 202)
-                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font, four permission modes, thread creation and turn submission')
+                deadline = time.monotonic() + 10
+                path = f"/api/notifications?epoch={baseline['epoch']}&after={baseline['cursor']}"
+                while True:
+                    notices = json.loads(request(path)[2])
+                    if notices['items']:
+                        assert notices['items'][0]['threadId'] == thread
+                        assert notices['items'][0]['status'] == 'completed'
+                        break
+                    if time.monotonic() > deadline:
+                        raise TimeoutError('Completion notification missing')
+                    time.sleep(.05)
+                stream = urllib.request.Request(base + f"/api/notifications/events?epoch={baseline['epoch']}&after={baseline['cursor']}",
+                    headers={'Authorization': 'Bearer ' + token})
+                with urllib.request.urlopen(stream, timeout=10) as response:
+                    assert response.headers['Content-Type'].startswith('text/event-stream')
+                    assert response.readline().decode().strip() == 'event: task'
+                    assert response.readline().decode().strip().startswith('id: ' + baseline['epoch'] + ':')
+                    notice = json.loads(response.readline().decode().removeprefix('data: '))
+                    assert notice['threadId'] == thread and notice['status'] == 'completed'
+                print('PASS: initialize, token digest, native child process, authentication, embedded Web/CanvasKit/CJK font/notification worker, four permission modes, turn submission and notification JSON/SSE delivery')
             except Exception:
                 # The isolated fake-Codex run has no account credentials. Redact
                 # its generated gateway token before exposing startup failures.

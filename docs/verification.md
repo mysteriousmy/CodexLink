@@ -157,3 +157,48 @@ Flutter Web 的开发热重启在当前 SDK 的 DWDS 里返回模块 JSON/视图
 - 手机尺寸的实际 Web 页面通过触摸下拉刷新，分别从已有列表、单条列表和空列表读取新结果；每次手势均只有一次列表请求。
 - Android 模拟器先登录 v0.1.1，再覆盖安装 v0.1.2 x86_64 Release APK，登录状态保留。实际下拉同样完成已有列表、短列表和空列表三种更新，均验证服务器请求次数及界面新内容。全部使用独立虚构会话，不访问用户真实账号或模型。
 - [v0.1.2 四平台原生验证](https://github.com/mysteriousmy/CodexLink/actions/runs/40059821509)全部通过；两个 Linux 架构各通过 37 项完整网关契约。本机最终 UPX x64 发布包也通过相同 37 项测试。四个 APK 的 ABI/签名与递增版本号验证通过，GitHub 上 9 个资产的 SHA-256 与本地一致；源码及包内共 1779 份内容的私密值检查为 0 命中。
+
+## v0.1.3 后台连接问题排查与修复（2026-10-24）
+
+- 使用只读 Pixel Android 模拟器、v0.1.2 正式 APK、独立假 Codex 网关及记录事件的本机代理。不访问用户真实会话，不执行模型任务。
+- 原版复现：后台重连的 `/api/status` 请求仍在等待时，回到前台建立新连接并显示“已连接”；再让旧 HTTP 连接失败，界面仍弹出 `ClientException: Connection closed before full header was received`，且新连接又被重连流程替换。这证明旧请求未受连接代次保护；测试没有声称复现真机完全相同的 `errno=110`。
+- Wi-Fi/移动数据开关不关闭，强制 Android Doze：Wi-Fi 仍连接，`mNetworkConnected=true`、`mState=IDLE`；CodexLink UID 的网络策略明确为 `effective=DOZE`。唤醒后可以恢复任务结果。这证明系统能在网络仍连接时限制 App 网络，但不能仅据此确定用户真机当时的具体休眠策略。
+- 原版 v0.1.2 普通后台及 Doze 下完成假任务均没有 Android 系统通知。Manifest、安装包权限和通知管理器检查与源码一致：没有 `POST_NOTIFICATIONS`、通知渠道、任务完成通知实现或推送接入。这是独立的功能缺失，不是已实现的通知被本次超时取消。
+- 修复版在隐藏/暂停时释放订阅和定时器，回前台重新读取当前任务；HTTP 重连与快照请求均检查连接代次。过期成功、超时、401 和销毁后的响应不再影响新会话；当前真实 401 仍要求登录，自动重连中的传输异常保留断线状态但不反复弹出底层异常。
+- `flutter --no-version-check test test/connection_lifecycle_test.dart` 通过 11 项；完整 Flutter 套件在前 10 项加入后通过 54 项，随后补充的取消定时重连用例同样通过。`flutter --no-version-check analyze` 无问题。
+- 本地 `0.1.3-dev` x86_64 Release APK 覆盖安装后保留登录。同样的旧 HTTP 故障不会再弹异常或替换新连接；后台观察期间没有客户端请求/心跳，回前台重新连接成功。再次强制 Doze 并在后台完成假任务，唤醒后界面显示新完成结果与“已连接”，没有底层异常。这是加入通知前的连接修复测试，修复已纳入 v0.1.3；本机生产服务仍按用户要求保留原版。
+
+| Requirement | Evidence |
+| --- | --- |
+| 旧 HTTP 成功/失败不能干扰新连接 | `stale_retry_timeout_cannot_replace_resumed_connection`、`stale_retry_unauthorized_cannot_replace_resumed_connection`、`stale_retry_success_cannot_replace_resumed_connection`、`stale_resync_failure_cannot_disconnect_new_session` |
+| 暂停重试、恢复真实任务和草稿 | `background_cancels_scheduled_reconnect`、`background_defers_network_and_resume_reconciles_task`、`app_forwards_suspension_and_resume_but_not_focus_loss` |
+| 当前鉴权错误与传输恢复保持正确 | `current_retry_unauthorized_requires_login`、`retry_timeout_recovers_without_error_snackbar`、`failed_resync_retries_with_full_snapshot`、`disposed_connection_ignores_pending_retry_failure` |
+
+## v0.1.3 任务通知验证
+
+使用独立假 Codex、临时设备密钥、Android 16 模拟器和 Chromium，未执行真实模型任务或修改用户会话。通知不包含回复正文。
+
+- .NET Release 构建无警告；完整 managed 网关契约 44 项通过，其中通知专项 7 项覆盖基线/实时/补收、去重、正常重启持久化、容量/过期、损坏 journal 和鉴权。
+- Flutter 全套 61 项测试通过，包含通知设置、气泡/点击、清理与此前 11 项生命周期回归。真实 Chromium 首次配置发现 Dart Web 位移导致随机数上限变为零，已修复并加入浏览器回归。浏览器专项合计 3 项通过。
+- Android Release 测试包实际操作：先拒绝通知权限，确认保持关闭；再次开启并允许后，连接状态正常。点击锁屏后台运行按钮通过系统电池授权。进入 Doze 后完成假任务，0.65 秒出现任务通知，采样时屏幕仍关闭且 `mState=IDLE`。服务为 specialUse 前台服务，UID 网络策略 `effective=NONE` 且包含电池白名单允许项。唤醒后从通知栏点击，打开正确会话。网关重启后仍在后台收到新任务通知，采样延迟 0.33 秒。
+- Web default/denied 权限下，实际完成事件产生右上角气泡；390 px 宽度时气泡边界为 x=18、y=12、宽 360，未溢出。重复完成事件仅显示一条，点击打开正确会话。授予权限后，实际 service worker 注册成功且系统通知队列包含正确的失败状态和线程 ID，页面不重复显示气泡。自动化验证系统通知的注册/队列；不能据此声称已人工看到所有操作系统的通知弹窗。
+- 测试发现前台空闲网页点击系统通知后没有请求新帧，导致打开会话延后；现显式请求界面更新，并加入 `system_notification_click_schedules_idle_ui_and_opens_matching_thread` 回归。
+- 最终 UPX Linux x64 发布包通过全部 44 项网关契约和原生冒烟检查；其内嵌网页与最终构建的 JavaScript 摘要一致。在此包中再次完成真实任务通知入队，再通过 service worker 的通知点击事件打开对应会话，确认请求和界面均正确，无需调整窗口。该点击由自动化合成，浏览器因此拒绝主动抢焦点；本次验证证明事件路由，不等于人工点击桌面通知。denied 权限下气泡去重、关闭也通过最终包复测。
+- 在 App 后台撤销测试设备凭据并重启独立网关后，`android_unauthorized_notification_feed_stops_background_service` 验证后台服务在 1.54 秒内停止，不继续无限鉴权重试。
+- 正式 x86_64 APK 再次覆盖安装后登录与权限保留；修正开启服务瞬间误报“未运行”的状态快照，并实际验证 `android_enable_reports_starting_without_false_stopped_error`。`android_doze_task_notification_before_wake` 在最终 APK 中再次通过：0.56 秒收到新会话的完成通知，采样时仍处于 Doze 且尚未唤醒。
+- 真机厂商冻结、蜂窝漫游、主机休眠、长时间后台稳定性仍需实际设备验证。模拟器 Doze 结果不代表所有手机都能以相同延迟送达；强行停止 App 后需重新打开。Web 实时提醒要求页面打开，iOS 后台推送未实现。
+
+| Requirement | Evidence |
+| --- | --- |
+| 基线、实时和断线补收，不携带正文 | `test_notification_baseline_live_delivery_and_replay_are_private` |
+| 同轮去重，主动中断不报完成 | `test_notification_duplicate_and_interrupted_turns_do_not_alert_twice` |
+| 重启持久化、损坏恢复 | `test_notification_cursor_and_history_survive_gateway_restart`、`test_notification_corrupt_journal_resets_epoch_without_breaking_startup` |
+| 有界历史与显式丢失提示 | `test_notification_retention_is_bounded_and_reports_delivery_gap`、`test_notification_expired_history_and_changed_epoch_are_explicit` |
+| 通知 API 鉴权/Origin/游标校验 | `test_notification_endpoints_require_authentication_and_valid_cursor` |
+| 气泡有界去重，后台保留、点击与关闭 | `notification_bubbles_deduplicate_replace_and_bound_backlog`、`notification_bubble_opens_exact_thread_and_dismisses_without_opening` |
+| 显式权限动作、旧服务器升级说明 | `notification_settings_request_permissions_only_after_user_action`、`notification_old_server_explains_upgrade_without_enable_action` |
+| 退出清理及异步授权隔离 | `notification_logout_clears_pending_clicks_and_ignores_late_permission_result` |
+| 空闲前台系统通知点击立即打开会话 | `system_notification_click_schedules_idle_ui_and_opens_matching_thread` |
+| 浏览器未授权仍启动通知通道，登出清除 | `notification_browser_starts_feed_without_permission_and_clears_session` |
+
+复现命令：`flutter test`；`flutter test --platform chrome test/web`；`.local/test-venv/bin/python -m unittest discover -s tests -v`。浏览器需要可用的 Chrome，独立前端开发服务器不提供网关通知 API。

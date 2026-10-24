@@ -21,6 +21,8 @@ builder.Services.AddSingleton(configuration);
 builder.Services.AddSingleton<DeviceAuth>();
 builder.Services.AddSingleton<EventHub>();
 builder.Services.AddSingleton<CodexRpc>();
+builder.Services.AddSingleton<TaskNotifications>();
+builder.Services.AddHostedService(services => services.GetRequiredService<TaskNotifications>());
 builder.Services.AddHostedService(services => services.GetRequiredService<CodexRpc>());
 builder.Services.AddSingleton<AttachmentStore>();
 builder.Services.AddSingleton<MediaStore>();
@@ -103,7 +105,8 @@ app.MapGet("/api/status", async (CodexRpc rpc, CancellationToken ct) =>
     JsonNode? account = null;
     if (rpc.Ready) account = await rpc.CallAsync("account/read", Json.Object(("refreshToken", false)), ct);
     return JsonResult(Json.Object(("gateway", "ready"), ("codex", rpc.State), ("codexVersion", rpc.Version),
-        ("account", account), ("maxFileBytes", configuration.Value.MaxFileBytes), ("codexTransport", rpc.Shared ? "shared" : "stdio")));
+        ("account", account), ("maxFileBytes", configuration.Value.MaxFileBytes), ("codexTransport", rpc.Shared ? "shared" : "stdio"),
+        ("taskNotifications", true)));
 });
 app.MapGet("/api/projects", async (ProjectCatalog projects, CancellationToken ct) => JsonResult(await projects.ListAsync(ct)));
 app.MapPost("/api/projects", async (CreateProjectRequest request, ProjectCatalog projects) => JsonResult(await projects.CreateAsync(request), 201));
@@ -187,6 +190,11 @@ app.MapDelete("/api/attachments/{id}", async (string id, bool? cleanup, SessionS
     return TypedResults.NoContent();
 });
 app.MapGet("/api/events", (HttpContext context, EventHub hub) => hub.ConnectAsync(context));
+app.MapGet("/api/notifications", (string? epoch, long? after, TaskNotifications notifications) =>
+    TypedResults.Json(notifications.Read(epoch, after), JsonContext.Default.TaskNoticeBatch))
+    .WithSummary("Read retained task completion metadata after a notification cursor");
+app.MapGet("/api/notifications/events", (HttpContext context, TaskNotifications notifications) => notifications.StreamAsync(context))
+    .WithSummary("Receive task completion notifications and reconnect cursors as server-sent events");
 app.MapGet("/health", () => TypedResults.Text("ok"));
 if (Directory.Exists(webRoot))
 {

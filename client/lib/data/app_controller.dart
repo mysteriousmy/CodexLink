@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../platform/transport.dart' as transport;
 import 'api_client.dart';
 import 'conversation_controller.dart';
+import 'task_notification_controller.dart';
 
 enum ConnectionState {
   offline,
@@ -20,7 +22,9 @@ enum ConnectionState {
 }
 
 class AppController extends ChangeNotifier {
-  AppController({ApiClient? api}) : api = api ?? ApiClient() {
+  AppController({ApiClient? api, TaskNotificationController? notifications})
+    : api = api ?? ApiClient(),
+      notifications = notifications ?? TaskNotificationController() {
     conversation = ConversationController(
       this.api,
       onError: reportError,
@@ -31,6 +35,7 @@ class AppController extends ChangeNotifier {
     );
   }
   final ApiClient api;
+  final TaskNotificationController notifications;
   late final ConversationController conversation;
   ConnectionState connection = ConnectionState.offline;
   bool authenticated = false;
@@ -63,6 +68,7 @@ class AppController extends ChangeNotifier {
   int _sequence = 0;
   bool _syncing = false;
   bool _disposed = false;
+  bool _foreground = true;
   bool _usageLoading = false;
   int _accountGeneration = 0;
   final List<JsonMap> _buffer = [];
@@ -99,6 +105,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> login(String server, String token) async {
+    await notifications.clear();
+    _stopConnection();
     _accountGeneration++;
     _threadListGeneration++;
     archivedThreads = false;
@@ -136,6 +144,7 @@ class AppController extends ChangeNotifier {
   Future<void> _loadSession() async {
     status = asMap(await api.request('GET', '/api/status'));
     authenticated = true;
+    await _configureNotifications();
     if (status['codex'] == 'ready') {
       await loadProjects().catchError(reportError);
       models = asMaps(asMap(await api.request('GET', '/api/models'))['data']);
@@ -144,6 +153,12 @@ class AppController extends ChangeNotifier {
     unawaited(refreshUsage());
     await connectEvents();
   }
+
+  Future<void> _configureNotifications() => notifications.configure(
+    api.base,
+    api.token,
+    status['taskNotifications'] == true,
+  );
 
   Future<void> loadThreads({bool more = false}) async {
     if (!authenticated || (more && (loadingThreads || threadCursor == null))) {
@@ -319,18 +334,16 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectEvents() async {
-    if (_disposed || !authenticated) return;
-    _retry?.cancel();
-    final generation = ++_connectionGeneration;
-    await _subscription?.cancel();
-    unawaited(_socket?.sink.close());
+    if (_disposed || !authenticated || !_foreground) return;
+    _stopConnection();
+    final generation = _connectionGeneration;
     connection = ConnectionState.connecting;
     notifyListeners();
     final socket = api.events(_epoch, _sequence);
     _socket = socket;
     _subscription = socket.stream.listen(
       (raw) {
-        if (generation != _connectionGeneration) return;
+        if (!_currentConnection(generation)) return;
         _lastMessage = DateTime.now();
         try {
           _event(asMap(jsonDecode(raw as String)));
@@ -339,19 +352,20 @@ class AppController extends ChangeNotifier {
         }
       },
       onError: (Object exception) {
-        if (generation == _connectionGeneration) _disconnected();
+        if (_currentConnection(generation)) _disconnected();
       },
       onDone: () {
-        if (generation == _connectionGeneration) _disconnected();
+        if (_currentConnection(generation)) _disconnected();
       },
     );
     try {
       await socket.ready.timeout(const Duration(seconds: 15));
-      if (generation != _connectionGeneration) return;
+      if (!_currentConnection(generation)) return;
       _retryCount = 0;
       _lastMessage = DateTime.now();
       _heartbeat?.cancel();
       _heartbeat = Timer.periodic(const Duration(seconds: 15), (_) {
+        if (!_currentConnection(generation)) return;
         if (DateTime.now().difference(_lastMessage) >
             const Duration(seconds: 45)) {
           _disconnected();
@@ -360,7 +374,7 @@ class AppController extends ChangeNotifier {
         socket.sink.add('{"type":"ping"}');
       });
     } catch (exception) {
-      if (generation == _connectionGeneration) _disconnected();
+      if (_currentConnection(generation)) _disconnected();
     }
   }
 
@@ -411,9 +425,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _resync() async {
+    final generation = _connectionGeneration;
     try {
-      status = asMap(await api.request('GET', '/api/status'));
+      final currentStatus = asMap(await api.request('GET', '/api/status'));
+      if (!_currentConnection(generation)) return;
+      status = currentStatus;
+      unawaited(_configureNotifications());
       await conversation.reload();
+      if (!_currentConnection(generation)) return;
       for (final event in _buffer) {
         _dispatch(event);
       }
@@ -424,8 +443,8 @@ class AppController extends ChangeNotifier {
           : ConnectionState.codexUnavailable;
       notifyListeners();
     } catch (exception) {
-      _syncing = false;
-      reportError(exception);
+      if (!_currentConnection(generation)) return;
+      _reportConnectionError(exception);
       _disconnected();
     }
   }
@@ -495,20 +514,25 @@ class AppController extends ChangeNotifier {
         connection == ConnectionState.loginRequired) {
       return;
     }
-    _heartbeat?.cancel();
-    if (_retry?.isActive == true) return;
+    _stopConnection();
     connection = ConnectionState.offline;
     notifyListeners();
+    if (!_foreground) return;
+    final generation = _connectionGeneration;
     final seconds = min(30, 1 << min(_retryCount++, 5));
     _retry = Timer(
       Duration(milliseconds: seconds * 1000 + Random().nextInt(500)),
       () async {
+        if (!_currentConnection(generation)) return;
         try {
-          status = asMap(await api.request('GET', '/api/status'));
+          final currentStatus = asMap(await api.request('GET', '/api/status'));
+          if (!_currentConnection(generation)) return;
+          status = currentStatus;
+          unawaited(_configureNotifications());
           await connectEvents();
         } catch (exception) {
-          reportError(exception);
-          _retry = null;
+          if (!_currentConnection(generation)) return;
+          _reportConnectionError(exception);
           _disconnected();
         }
       },
@@ -516,9 +540,62 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> foreground() async {
+    _foreground = true;
+    notifications.foreground(true);
     if (!authenticated) return;
+    // A sleeping app may miss events or outlive the replay buffer. Reconcile
+    // the selected task with a fresh snapshot before allowing interaction.
+    _epoch = null;
+    _sequence = 0;
     await connectEvents();
     unawaited(refreshUsage());
+  }
+
+  void background() {
+    if (!_foreground || _disposed) return;
+    _foreground = false;
+    notifications.foreground(false);
+    _stopConnection();
+    if (authenticated) connection = ConnectionState.offline;
+    notifyListeners();
+  }
+
+  bool _currentConnection(int generation) =>
+      !_disposed &&
+      authenticated &&
+      _foreground &&
+      generation == _connectionGeneration;
+
+  void _stopConnection() {
+    // Cancelling a timer does not cancel HTTP work already started by it.
+    // Invalidate that work before closing the old socket or scheduling retry.
+    _connectionGeneration++;
+    _retry?.cancel();
+    _retry = null;
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    unawaited(_subscription?.cancel());
+    _subscription = null;
+    unawaited(_socket?.sink.close());
+    _socket = null;
+    if (_syncing) {
+      _epoch = null;
+      _sequence = 0;
+    }
+    _syncing = false;
+    _buffer.clear();
+  }
+
+  void _reportConnectionError(Object exception) {
+    if (exception is TimeoutException ||
+        exception is http.ClientException ||
+        exception is WebSocketChannelException) {
+      // Offline/reconnecting state already describes a temporary transport
+      // failure. Keep automatic retries from producing repeated snackbars.
+      debugPrint('CodexLink connection interrupted: $exception');
+      return;
+    }
+    reportError(exception);
   }
 
   Future<void> refreshUsage({bool force = false}) async {
@@ -568,6 +645,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await notifications.clear();
     if (kIsWeb) await api.request('DELETE', '/api/auth/session');
     await transport.saveToken(null);
     authenticated = false;
@@ -583,11 +661,7 @@ class AppController extends ChangeNotifier {
     _sequence = 0;
     _buffer.clear();
     _syncing = false;
-    _connectionGeneration++;
-    _retry?.cancel();
-    _heartbeat?.cancel();
-    await _subscription?.cancel();
-    await _socket?.sink.close();
+    _stopConnection();
     connection = ConnectionState.loginRequired;
     notifyListeners();
   }
@@ -597,8 +671,8 @@ class AppController extends ChangeNotifier {
     if (exception is ApiError && exception.status == 401) {
       connection = ConnectionState.loginRequired;
       authenticated = false;
-      _retry?.cancel();
-      _heartbeat?.cancel();
+      unawaited(notifications.clear());
+      _stopConnection();
       notifyListeners();
     }
   }
@@ -606,10 +680,8 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _retry?.cancel();
-    _heartbeat?.cancel();
-    unawaited(_subscription?.cancel());
-    unawaited(_socket?.sink.close());
+    _stopConnection();
+    notifications.dispose();
     conversation.dispose();
     error.dispose();
     api.close();

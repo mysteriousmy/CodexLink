@@ -1,0 +1,20 @@
+@baseUrl = http://localhost:47821
+@deviceToken = REPLACE_WITH_YOUR_LOCAL_DEVICE_KEY
+@epoch = REPLACE_WITH_EPOCH_FROM_BASELINE
+
+### Establish a baseline without replaying old completions
+GET {{baseUrl}}/api/notifications
+Authorization: Bearer {{deviceToken}}
+
+### Read new completions from a known baseline
+GET {{baseUrl}}/api/notifications?epoch={{epoch}}&after=0
+Authorization: Bearer {{deviceToken}}
+
+### Subscribe (SSE); keep the returned cursor for reconnects
+GET {{baseUrl}}/api/notifications/events?epoch={{epoch}}&after=0
+Authorization: Bearer {{deviceToken}}
+Accept: text/event-stream
+
+### Invalid cursor returns a problem response
+GET {{baseUrl}}/api/notifications?epoch={{epoch}}&after=-1
+Authorization: Bearer {{deviceToken}}

@@ -25,6 +25,7 @@ Real Web and Android Release UI with fictional demo conversations, projects and 
 ## What you can do
 
 - **Resume existing sessions.** Browse conversations across local working directories, search titles, filter by native Codex project, pull down to refresh the session list, load more history automatically, and inspect or restore archived sessions. Sessions keep their original IDs and settings.
+- **Receive task reminders.** Android can notify you while the app is in the background. Web uses system notifications when permitted and a top-right bubble otherwise. Tap a reminder to open its conversation.
 - **Keep working while away from the computer.** Stream intermediate commentary and final replies, see tool activity, respond to approvals, stop a turn, or steer an active turn without restarting it.
 - **Send real attachments.** Choose files in the app, drop files into the web client, or paste clipboard files/images into the web composer. Upload progress, cancellation, retry and image preview are supported. An upload becomes a message attachment only when you send it.
 - **Choose session permissions.** Read only, Default, Auto-review and Full access use native Codex settings, respect managed restrictions and synchronize across clients. Existing custom settings are preserved.
@@ -33,6 +34,14 @@ Real Web and Android Release UI with fictional demo conversations, projects and 
 - **Read changes and media.** Open colored file diffs with line numbers, inspect image results, preview local files and animated SVGs, and download attachments.
 - **Understand usage.** View conversation tokens, context usage, Goal consumption and the account usage/quota data exposed by Codex. Missing metrics stay unknown instead of being displayed as zero.
 - **Use a phone-sized interface.** Compact session navigation, dark/light themes, keyboard-aware composition and Android system-back navigation. Returning to the list keeps the draft.
+
+## Enable task notifications
+
+Upgrade both the gateway and Android app to v0.1.3 or later. Open the session-list menu → **任务通知** (Task notifications), select **开启系统通知** and grant Android's notification permission. For lock-screen reminders, also select **允许锁屏后台运行**; some phones require allowing auto-start/background activity in system settings. Android keeps a quiet ongoing connection notification and does not require FCM or a third-party relay.
+
+On Web, an open tab receives events automatically. Allow notifications from the same menu on HTTPS/localhost. Without permission, or on unsupported HTTP origins, a clickable bubble appears at the top right; background bubbles wait until the page becomes visible. Closing the browser/tab ends live delivery. Notification titles contain completion/failure status, not reply contents.
+
+Reminders correspond to completed or failed **turns** received by this gateway, including sessions started or resumed/subscribed here. A turn completion does not mean an entire Goal has finished. The gateway retains up to 256 notification records for seven days; reconnecting clients can catch up, while first-time subscriptions start with future events. Expired history is reported explicitly. The journal contains IDs/status/time only, not another copy of chat history.
 
 ## How it works
 
@@ -46,7 +55,7 @@ flowchart LR
     C --> P
 ```
 
-The gateway has no business database and does not copy or read Codex's private conversation database/logs. It stores only its own configuration, token hashes, uploaded files and bounded preview/cache state. Existing conversations are restored through official protocol calls. The preferred shared-daemon connection owns only its socket; closing CodexLink does not terminate that shared daemon.
+The gateway has no business database and does not copy or read Codex's private conversation database/logs. It stores only its own configuration, token hashes, uploaded files and bounded preview/cache state and a small task-notification journal. Existing conversations are restored through official protocol calls. The preferred shared-daemon connection owns only its socket; closing CodexLink does not terminate that shared daemon.
 
 ## Download the right package
 
@@ -219,7 +228,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.2
+python3 scripts/build-release.py --all --no-upx --version 0.1.3
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -261,12 +270,12 @@ Packed Windows binaries may trigger security-product heuristics; build with `--n
 cd client
 flutter --no-version-check analyze
 flutter --no-version-check test
-flutter --no-version-check test --platform chrome test/web/clipboard_test.dart
+flutter --no-version-check test --platform chrome test/web
 cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.2/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.3/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 
@@ -282,6 +291,7 @@ Create the test environment once with `python3 -m venv .local/test-venv` and `.l
 - **A phone disconnects:** accepted work continues while its host app-server remains alive. Reconnect to reconcile progress; do not assume process restarts preserve in-flight approvals or deduplication caches.
 - **iOS:** the Flutter iOS project is present, but signing/building requires macOS/Xcode. No iOS binary is distributed here.
 - **Long background sessions and real mobile networks:** emulator tests do not prove all sleep, roaming or network conditions. See [verification and limits](docs/verification.md).
+- **Task reminders:** Android needs notification permission and background/battery access for timely lock-screen delivery. Force-stopping the app, host/network outages and vendor battery policies can prevent immediate delivery. Web needs an open tab; no closed-browser Web Push or iOS background push is included.
 
 ## Repository map
 

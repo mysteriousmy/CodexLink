@@ -10,7 +10,7 @@ CodexLink 是一个自用、单用户、可由多个个人设备访问的 Codex 
 
 这些能力按实施阶段逐步交付，但全部属于首版完成条件。交互与数据口径见 [产品与界面设计](product-design.md)。
 
-首版不做：多租户、商业账户系统、自研公网中转、任意终端远控、复杂任务调度、推送平台、后台长期移动端连接、多 Agent 编排界面，以及聊天内容的第二份服务端存储。Codex 自带的执行能力仍可按配置工作。
+首版不做：多租户、商业账户系统、自研公网中转、任意终端远控、复杂任务调度、第三方推送平台、多 Agent 编排界面，以及聊天内容的第二份服务端存储。Codex 自带的执行能力仍可按配置工作。
 
 ## 2. 运行结构
 
@@ -117,6 +117,7 @@ JSON 文件只保存小量、低频修改数据；单进程串行更新，写临
 客户端连接状态至少区分：离线、连接中、已连接、重新同步、需要登录、Codex 不可用。网络不通时明确显示服务器不可达，不能展示为模型正在思考。
 
 - **断线**：释放客户端订阅，不向 Codex 发 interrupt。移动设备回到前台时立即验证连接。
+- **后台与恢复**：客户端隐藏/暂停时释放 WebSocket、心跳和重连定时器，已在途 HTTP 通过连接代次失效；回到前台重新订阅并读取当前会话快照。旧请求的成功、超时或 401 不得覆盖新连接，正常的临时传输故障通过连接状态展示。任务提醒使用独立通道，不能依赖后台聊天 WebSocket 保证送达。
 - **重连**：网络恢复即尝试；连续失败使用带抖动、封顶的退避，避免多设备同步冲击。认证失败停止无效重试并显示重新登录。
 - **事件**：网关为标准化事件提供 `epoch` 与递增 `seq`。进程重启后更换 epoch。
 - **短暂掉线**：先订阅并暂存后续事件，从有界缓存重放缺失事件，再切换实时流。缓存按字节和时间限制，初始预算为总计 8 MiB / 最多 5 分钟，先达到哪个先淘汰。
@@ -182,3 +183,15 @@ AOT 网关的启动、空闲内存和事件路径单独测量；Codex 子进程�
 App/Web 读取 `GET /api/threads/{id}/permissions` 的当前值及四档可用性，通过 `PUT` 提交一个 `preset`。服务端只接受 `read-only/default/auto-review/full-access`，分别映射到原生命名配置与审批策略；不提供任意权限 RPC 透传。新会话使用 `:workspace`、`on-request`、`user`，不覆盖恢复会话的设置。
 
 选择时核对 `permissionProfile/list` 与 `configRequirements/read`，运行中的轮次/Goal 拒绝修改。`thread/settings/update` 的空响应不能作为最终状态，等待 `thread/settings/updated` 确认后回传，同一事件同步其他客户端。新建空会话尚无 rollout，因此不能为了读取权限而强制 `thread/resume`。现有自定义设置保留并明确标识。
+
+## 任务通知（v0.1.3）
+
+网关订阅 Codex 的 `turn/completed`，仅投影 completed/failed，忽略 interrupted；不轮询日志或私有数据库。`GET /api/notifications` 与 `/api/notifications/events` 均经设备/Bearer 或同源 Cookie 鉴权。后者使用 SSE，20 秒发送 ready 心跳；客户端使用 epoch/cursor 或 Last-Event-ID 断线补收，首次无游标只取得基线。单客户端写入超时 15 秒，不阻塞 Codex 读循环。
+
+通知元数据仅含线程/轮次 ID、状态、时间，最多七天/256 条。进程内有界信号合并写入私有 `notifications.json`，临时文件原子替换；正常退出补写。客户端可读取 durable 判断当前游标是否已落盘，进程崩溃可能丢失尚未持久化的最近记录。过期、游标越界或 journal 损坏通过 gap/reset 表达，不伪装连续送达。恢复首次连接不补发全部旧任务。
+
+Android `TaskNotificationService` 是用户明确开启的 specialUse 前台服务，直接保持轻量鉴权 SSE，无需云推送。POST_NOTIFICATIONS 与电池豁免均由用户动作申请；Activity 销毁不依赖 Flutter engine 运行服务。连接密钥由 Android KeyStore AES/GCM 加密，私有偏好仅保存密文、游标及最多 256 个去重 ID。稳定的会话标签替换未读通知，最多保留 20 张任务卡；点击身份与当前服务器/设备密钥摘要绑定，退出登录停止服务并清除密钥、游标和通知。401/403/404/重定向停止服务并提示；传输失败使用最长 30 秒退避。不能承诺强行停止、厂商冻结或真实移动网络下永不延迟。
+
+Web 同源 EventSource 独立于聊天连接，页面隐藏时保留。获得系统权限后优先调用专用 `/notifications/` scope 的 service worker 显示/打开通知；其脚本不缓存或拦截资源，不覆盖 Flutter worker。系统不支持/权限未授予/显示失败时进入最多三条右上角气泡，隐藏期间不计消失时间；会话打开与当前浏览器登录身份绑定，退出清除游标及待打开会话。页面关闭后的实时 Web Push 和 iOS 后台推送尚未实现。
+
+平台权限依据：[Android 前台服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types)、[Doze 与电池豁免](https://developer.android.com/training/monitoring-device-state/doze-standby)、[浏览器系统通知](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification)。

@@ -46,6 +46,9 @@ public sealed class ApiException(int status, string code, string message) : Exce
 [JsonSerializable(typeof(JsonNode))]
 [JsonSerializable(typeof(JsonArray))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(Realtime.TaskNotice))]
+[JsonSerializable(typeof(Realtime.TaskNoticeBatch))]
+[JsonSerializable(typeof(Realtime.TaskNoticeJournal))]
 public partial class JsonContext : JsonSerializerContext;
 
 public static class Json

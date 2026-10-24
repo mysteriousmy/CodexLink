@@ -24,6 +24,8 @@ CodexLink 是面向个人的自托管 Codex 远程客户端。电脑运行一个
 
 ## 主要功能
 
+- **任务提醒**：Android 在 App 后台接收完成/失败通知；Web 有权限时弹系统通知，否则在右上角显示气泡，点击打开对应会话。
+
 - **接续已有会话**：列出本机不同目录、来源和模型提供商的会话，支持标题搜索、原生项目筛选、下拉刷新、自动分页和归档查看；保留原会话 ID 与配置。
 - **远程执行与干预**：实时显示中间说明、最终回复及工具活动，处理审批、中断轮次，或通过原生 steer 引导正在执行的轮次。
 - **文件与图片附件**：App 文件选择、网页拖放和剪贴板真实文件/图片粘贴；支持上传进度、取消、重试与图片预览。上传完成后仍需发送才会提交附件。
@@ -33,6 +35,14 @@ CodexLink 是面向个人的自托管 Codex 远程客户端。电脑运行一个
 - **代码变更与媒体**：彩色文件 Diff、行号和全屏阅读；查看图片结果、本地文件、动画 SVG，并下载附件。
 - **使用量与额度**：会话 Token、上下文占用、Goal 消耗及 Codex 提供的账号用量和订阅额度；缺失值保持未知。
 - **手机布局**：紧凑会话列表、明暗主题、输入法适配；Android 系统返回先返回列表并保留草稿。
+
+## 开启任务通知
+
+电脑网关和 Android App 都需更新至 v0.1.3 或更高版本。在会话列表更多菜单中打开 **任务通知 → 开启系统通知**，允许 Android 通知权限。要在锁屏后及时收到提醒，再点 **允许锁屏后台运行**；部分手机还需允许自启动与后台活动。Android 会保留一条低优先级的后台连接提示，无需 FCM 账号或第三方推送中转。
+
+网页保持打开时自动接收提醒。HTTPS/localhost 可从同一菜单申请系统通知权限；没有权限或不支持的 HTTP 地址仍显示右上角可点击气泡。后台期间的气泡会等切回页面后再计时消失。关掉页面或浏览器后不再实时送达。通知仅显示完成/失败状态，不包含回复正文。
+
+通知对应网关实际接收到的**轮次完成或失败**事件，包括在此启动、恢复或订阅过的会话；一轮结束不等于整个 Goal 完成。网关最多保留七天、256 条通知元数据，已启用的客户端断线后可补收；首次订阅只接收之后的事件。历史过期时明确提示。记录只含 ID、状态与时间，不复制聊天内容。
 
 ## 工作方式
 
@@ -220,7 +230,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # 关闭 UPX，或指定版本
-python3 scripts/build-release.py --all --no-upx --version 0.1.2
+python3 scripts/build-release.py --all --no-upx --version 0.1.3
 
 # 同一源码已完成 Flutter 检查，重试打包时跳过重复检查
 python3 scripts/build-release.py --all --skip-checks
@@ -254,11 +264,11 @@ Windows 压缩程序可能被安全软件启发式规则识别，可按环境需
 cd client
 flutter --no-version-check analyze
 flutter --no-version-check test
-flutter --no-version-check test --platform chrome test/web/clipboard_test.dart
+flutter --no-version-check test --platform chrome test/web
 cd ..
 
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.2/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.3/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 
@@ -274,6 +284,7 @@ CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.2/linux-musl-x64/CodexLink.Serv
 - **手机断网**：只要主机 app-server 仍在运行，已接收任务可继续；重连后核对状态。跨进程重启不保证保留在途审批和去重缓存。
 - **iOS**：工程已包含，需要 macOS/Xcode 与签名；当前不分发 iOS 二进制。
 - **长时间后台/真实移动网络**：模拟器测试不能证明所有休眠、漫游和网络情况，见[验证记录与限制](docs/verification.md)。
+- **任务完成通知**：Android 需要通知权限与后台/电池权限。强行停止 App、主机或网络中断、厂商省电策略都可能影响及时送达。Web 需要页面保持打开；当前没有关页后的 Web Push 或 iOS 后台推送。
 
 ## 仓库结构
 
