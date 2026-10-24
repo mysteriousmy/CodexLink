@@ -7,8 +7,7 @@ $password = 'A1!' + [guid]::NewGuid().ToString('N')
 $root = Join-Path $env:SystemDrive ($user + '-smoke')
 $python = (Get-Command python).Source
 $created = $false
-$task = $user + '-daemon-smoke'
-$registered = $false
+$bootstrapProcess = $null
 try {
     New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -AccountNeverExpires | Out-Null
     $created = $true
@@ -37,28 +36,43 @@ Set-Content '$root\result.txt' `$code
 exit `$code
 "@ | Set-Content "$root\run.ps1"
     $powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"& '$root\run.ps1' *> '$root\launcher.log'`""
-    $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $root
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-    Register-ScheduledTask -TaskName $task -Action $action -Settings $settings -User "$env:COMPUTERNAME\$user" -Password $password -RunLevel Limited -Force | Out-Null
-    $registered = $true
-    Start-ScheduledTask -TaskName $task
+    Start-Service seclogon
+    $credential = [pscredential]::new("$env:COMPUTERNAME\$user", (ConvertTo-SecureString $password -AsPlainText -Force))
+    $credential | Export-Clixml "$root\credential.xml"
+    @"
+`$ErrorActionPreference = 'Stop'
+try {
+    `$credential = Import-Clixml '$root\credential.xml'
+    `$process = Start-Process -FilePath '$powershell' -Credential `$credential -LoadUserProfile -WorkingDirectory '$root' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File $root\run.ps1' -PassThru
+    if (!`$process.WaitForExit(240000)) { `$process.Kill(); throw 'Standard-user launcher timed out' }
+    if (!(Test-Path '$root\result.txt')) { throw "Launcher exited without a result: `$(`$process.ExitCode)" }
+} catch {
+    `$_ | Out-File '$root\bootstrap-error.log'
+    Set-Content '$root\result.txt' 1
+}
+"@ | Set-Content "$root\bootstrap.ps1"
+    # WMI's documented breakaway flag leaves the runner's job before creating
+    # the ordinary-user process. Only this disposable CI environment uses it.
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ CreateFlags = [uint32]16777216; ShowWindow = [uint16]0 }
+    $launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = "`"$powershell`" -NoProfile -ExecutionPolicy Bypass -File `"$root\bootstrap.ps1`""
+        CurrentDirectory = $root
+        ProcessStartupInformation = $startup
+    }
+    if ($launch.ReturnValue -ne 0) { throw "WMI launcher failed: $($launch.ReturnValue)" }
+    $bootstrapProcess = Get-Process -Id $launch.ProcessId -ErrorAction SilentlyContinue
     $end = (Get-Date).AddMinutes(5)
     while (!(Test-Path "$root\result.txt") -and (Get-Date) -lt $end) {
         Start-Sleep -Seconds 1
-        $info = Get-ScheduledTaskInfo -TaskName $task
-        if ($info.LastRunTime.Year -gt 2000 -and (Get-ScheduledTask -TaskName $task).State -ne 'Running') { break }
+        if (!$bootstrapProcess -or $bootstrapProcess.HasExited) { break }
     }
     if (Test-Path "$root\output.log") { Get-Content "$root\output.log" }
-    if (Test-Path "$root\launcher.log") { Get-Content "$root\launcher.log" }
-    $info = Get-ScheduledTaskInfo -TaskName $task
-    Write-Host "Standard-user task state: $((Get-ScheduledTask -TaskName $task).State); result: $($info.LastTaskResult)"
+    if (Test-Path "$root\bootstrap-error.log") { Get-Content "$root\bootstrap-error.log" }
     if (!(Test-Path "$root\result.txt")) { throw 'Standard-user daemon smoke timed out' }
     if ([int](Get-Content "$root\result.txt") -ne 0) { throw 'Standard-user daemon smoke failed' }
 } finally {
-    if ($registered) {
-        Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-        Unregister-ScheduledTask -TaskName $task -Confirm:$false
+    if ($bootstrapProcess -and !$bootstrapProcess.HasExited) {
+        if (!$bootstrapProcess.WaitForExit(5000)) { $bootstrapProcess.Kill(); $bootstrapProcess.WaitForExit() }
     }
     if ($created) { Remove-LocalUser -Name $user }
     if (Test-Path $root) { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue }
