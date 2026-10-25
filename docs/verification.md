@@ -370,3 +370,11 @@ Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试
 压缩后的 Linux x64 发布包通过全部 84 项契约（104.473 秒）、发布包功能检查及真实 Codex 设置/权限确认。四个服务端包的 ELF/PE 架构、内嵌 Web 元数据及二进制哈希一致；四个 Android APK 的版本为 0.1.9，版本码分别为 ARM64 2010、ARMv7 1010、x86_64 4010、通用 10，签名证书与 v0.1.8 一致。8 个资产的 SHA256SUMS 和 GitHub 上 9 个文件的大小/摘要匹配。已知私有凭据检查覆盖 1,826 个内容项，零匹配；Git 历史扫描 35 个提交，零发现。
 
 四平台发布检查 [40183938015](https://github.com/mysteriousmy/CodexLink/actions/runs/40183938015) 全部成功：Linux x64/ARM64 分别运行实际压缩包的 84 项契约，并通过真实 Codex 0.164.0 的速度、权限与共享生命周期检查；Windows x64/ARM64 运行实际原生包，Codex 端使用协议替身。Windows 真实后台冷启动的既有 CI 限制未解除，本次不将其计为通过。Android 本次没有新增实机触摸验收。
+
+## v0.2.0 — GitHub 更新检查
+
+自动检查、手动入口与两端独立比较通过 Flutter 147 项全套测试，静态分析无问题；新更新检查 Chrome 24 项通过，Android 原生包信息测试仅在原生 Flutter runner 执行（Chrome 按平台跳过 1 项）。额外在 Chrome 中直接访问公开 GitHub releases/latest，确认跨域请求、实际 v0.1.9 元数据解析、Windows ARM64 与 Android ARM64 附件直链均通过；该在线烟测使用虚构的旧版本安装信息，不修改本机会话。
+
+`auto_notice_and_manual_menu_check` 覆盖连接后通知、手机菜单手动检查与前后台六小时边界；`automatic_checks_throttle_and_manual_checks_bypass` 覆盖限频、手动刷新与保存关闭开关；`update_checks_compare_app_and_server_independently` 覆盖两端独立版本和鉴权边界；`update_dialog_shows_versions_and_opens_platform_downloads` 验证点击的实际目标 URL。GitHub 公共发布样本回归 `published_github_assets_match_real_release_package_names` 固定了 Windows 使用 windows-* 的真实命名。失败、超时、缺包、不支持平台、旧服务端回退和切换主机的晚响应均有独立断言。
+
+托管服务端构建 0 警告，网关 85 项通过。`test_server_version_endpoint_is_authenticated_and_passive` 证明实际版本/平台/架构、401 和 Codex 待机保持；发布包原生烟测同样核对版本接口与内嵌网页版本。

@@ -11,6 +11,7 @@ import 'usage_panels.dart';
 import 'workspace_picker.dart';
 import 'task_notifications.dart';
 import 'thread_list_tile.dart';
+import 'update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.controller});
@@ -26,13 +27,43 @@ class _HomeScreenState extends State<HomeScreen> {
   final _search = TextEditingController();
   final _threadScroll = ScrollController();
   Timer? _searchDebounce;
+  bool _updatesOpen = false;
   app.AppController get controller => widget.controller;
   @override
   void initState() {
     super.initState();
     controller.error.addListener(_showError);
     controller.notifications.openedThread.addListener(_openNotification);
+    controller.updates.notice.addListener(_showUpdateNotice);
+    _showUpdateNotice();
     _threadScroll.addListener(_loadMoreThreads);
+  }
+
+  Future<void> _showUpdates() async {
+    if (_updatesOpen) return;
+    _updatesOpen = true;
+    try {
+      await showUpdateDialog(context, controller.updates);
+    } finally {
+      _updatesOpen = false;
+    }
+  }
+
+  void _showUpdateNotice() {
+    final message = controller.updates.notice.value;
+    if (!mounted || message == null || _updatesOpen) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !controller.authenticated || _updatesOpen) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 8),
+          showCloseIcon: true,
+          action: SnackBarAction(label: '查看', onPressed: _showUpdates),
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _openNotification() {
@@ -530,6 +561,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   Flexible(child: ConnectionIndicator(controller: controller)),
                   const Spacer(),
                   IconButton(
+                    tooltip: '检查更新',
+                    onPressed: _showUpdates,
+                    icon: Badge(
+                      isLabelVisible: controller.updates.hasUpdate,
+                      child: const Icon(
+                        Icons.system_update_alt_rounded,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                  IconButton(
                     tooltip: '任务通知',
                     onPressed: () => showTaskNotificationSettings(
                       context,
@@ -601,6 +643,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         controller.notifications,
                       );
+                    case 'updates':
+                      _showUpdates();
                     case 'logout':
                       _perform(controller.logout);
                   }
@@ -627,6 +671,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text('任务通知'),
                   ),
                   const PopupMenuItem(value: 'logout', child: Text('退出连接')),
+                  PopupMenuItem(
+                    value: 'updates',
+                    child: Text(
+                      controller.updates.hasUpdate ? '检查更新 · 有新版本' : '检查更新',
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -787,6 +837,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    controller.updates.notice.removeListener(_showUpdateNotice);
     _searchDebounce?.cancel();
     _search.dispose();
     _threadScroll.dispose();
@@ -947,6 +998,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  TextButton.icon(
+                    onPressed: () =>
+                        showUpdateDialog(context, widget.controller.updates),
+                    icon: const Icon(Icons.system_update_alt_rounded),
+                    label: const Text('检查更新'),
+                  ),
                   Text(
                     '使用主机生成的设备访问密钥。远程连接请使用 HTTPS 地址。',
                     style: TextStyle(

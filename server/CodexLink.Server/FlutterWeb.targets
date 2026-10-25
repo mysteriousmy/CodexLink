@@ -34,7 +34,7 @@
     </ItemGroup>
   </Target>
   <Target Name="BuildFlutterWeb" DependsOnTargets="PrepareFlutterWebPaths" Inputs="@(FlutterWebInput);$(EmbeddedWebDirectory).inputs" Outputs="$(EmbeddedWebDirectory).stamp;$(EmbeddedWebDirectory)/index.html;$(EmbeddedWebDirectory)/main.dart.js">
-    <Exec Condition="'$(PrebuiltFlutterWebDirectory)' == ''" WorkingDirectory="$(FlutterClientDirectory)" Command="&quot;$(FlutterExecutable)&quot; --no-version-check build web --$(FlutterWebMode) --no-web-resources-cdn --output &quot;$(EmbeddedWebDirectory)&quot;" />
+    <Exec Condition="'$(PrebuiltFlutterWebDirectory)' == ''" WorkingDirectory="$(FlutterClientDirectory)" Command="&quot;$(FlutterExecutable)&quot; --no-version-check build web --$(FlutterWebMode) --no-web-resources-cdn --build-name=$(Version) --dart-define=CODEXLINK_VERSION=$(Version) --output &quot;$(EmbeddedWebDirectory)&quot;" />
     <Touch Condition="'$(PrebuiltFlutterWebDirectory)' == ''" Files="$(EmbeddedWebDirectory).stamp" AlwaysCreate="true" />
   </Target>
 </Project>

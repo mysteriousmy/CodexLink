@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import socket
 import subprocess
@@ -66,6 +67,13 @@ def main():
                     if time.monotonic() > deadline:
                         raise TimeoutError('Server did not become ready with the fake Codex')
                     time.sleep(.1)
+                assert json.loads(request('/api/status')[2])['codex'] == 'idle'
+                version = json.loads(request('/api/version')[2])
+                expected_platform = {'Linux':'linux', 'Windows':'windows', 'Darwin':'macos'}[platform.system()]
+                expected_arch = {'x86_64':'x64', 'AMD64':'x64', 'aarch64':'arm64', 'ARM64':'arm64'}[platform.machine()]
+                assert version['platform'] == expected_platform and version['architecture'] == expected_arch
+                assert version['packageTarget'] == f'{expected_platform}-{expected_arch}'
+                assert version['version'] == json.loads(request('/version.json', auth=False)[2])['version']
                 assert json.loads(request('/api/status')[2])['codex'] == 'idle'
                 assert json.loads(request('/api/runtime/start', {})[2])['codex'] == 'ready'
                 try:

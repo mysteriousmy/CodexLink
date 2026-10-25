@@ -1,0 +1,9 @@
+@baseUrl = http://localhost:47821
+@accessToken = replace-with-your-local-device-key
+
+### Actual gateway binary version and package platform, also available while Codex is idle
+GET {{baseUrl}}/api/version
+Authorization: Bearer {{accessToken}}
+
+### Missing authentication returns 401
+GET {{baseUrl}}/api/version

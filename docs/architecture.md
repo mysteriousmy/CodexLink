@@ -78,6 +78,7 @@ JSON 文件只保存小量、低频修改数据；单进程串行更新，写临
 | 接口 | 作用 / 底层映射 |
 | --- | --- |
 | `GET /api/status` | 网关、Codex、登录状态与版本；不使用付费请求探活 |
+| `GET /api/version` | 当前网关程序版本、平台与架构；需鉴权，不启动 Codex |
 | `POST /api/auth/session` | 校验设备访问密钥，建立网页 Cookie |
 | `DELETE /api/auth/session` | 清除网页登录；撤销设备由本机管理入口完成 |
 | `GET /api/projects` / `POST /api/projects` | 分页读取/创建 Codex 原生项目 |
@@ -238,3 +239,11 @@ POST /api/threads/{id}/input 在会话锁内读取真实轮次：空闲时 turn/
 `PUT /api/threads/{id}/speed` 仅接受 `mode: fast/standard`，分别使用原生 `thread/settings/update` 的 `serviceTier: priority/default`。default 是显式标准速度，不能用省略/null 代替后再次继承默认 Fast。接口等待 `thread/settings/updated` 中相符的实际设置，失败不伪装成功；不会修改全局配置、模型、权限或 Goal，也不打断活跃轮次。
 
 会话快照提供 `serviceTier` 与 `serviceTierKnown`。打开与刷新已有会话、读取权限选项时，重新用不含覆盖参数的 `thread/resume` 取得原生设置；新建未持久化的空会话保留创建响应和实时事件，不强行 resume。外部设置事件更新两端状态；客户端事件版本和登录代次阻止旧 HTTP 响应覆盖新状态，断线失去运行时后速度显示未知。权限弹窗监听同一控制器；命名权限配置还需与实际沙箱和审批一致，才能显示为预设。
+
+## 更新检查（v0.2.0）
+
+`UpdateController` 在登录成功和回到前台时读取 GitHub `repos/mysteriousmy/CodexLink/releases/latest`；正式版本按语义版本数字比较，忽略构建元数据，草稿和预发布不会被当成稳定更新。成功检查间隔六小时，失败自动重试间隔十五分钟，手动检查绕过间隔；并发检查共用一次请求。自动检查开关保存在本地偏好。检查不阻塞登录、不会安装或执行下载包。
+
+GitHub 使用独立、无网关 Authorization/Cookie 的 HTTP 客户端。原生 Android 通过系统包信息读取实际 versionName 和 SUPPORTED_ABIS；Web 与其他 Flutter 目标使用编译时版本，发布脚本和后端 Web 构建将 CODEXLINK_VERSION 与包版本绑定。`GET /api/version` 读取正在运行的程序集版本和 ProcessArchitecture，不依赖旁置 build-info.json，也不触发 Codex RPC；旧版 404 后回退 `/version.json`，平台保留未知并由用户选择。服务端与 App 版本读取独立失败，仍可展示另一端的更新。
+
+附件匹配已发布的 `browser_download_url`，校验当前仓库、版本、文件名和 uploaded 状态；Windows 附件使用 `windows-x64/windows-arm64`，Linux 使用 `linux-x64/linux-arm64`。Android 按设备支持的 ABI 顺序匹配，缺少单 ABI 包时使用实际存在的 universal 包。缺失/不支持平台不猜测链接。Web 明确提示升级服务端并刷新。切换主机、退出登录或销毁后，旧请求不能覆盖新状态。自动通知每次运行中对同一主机/版本组合只提示一次；手动面板始终能检查。

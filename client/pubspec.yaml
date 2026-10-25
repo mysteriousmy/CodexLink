@@ -1,7 +1,7 @@
 name: codex_link
 description: "A personal Codex remote client for Android, iOS and Web."
 publish_to: 'none'
-version: 0.1.9+10
+version: 0.2.0+11
 
 environment:
   sdk: ^3.13.4
@@ -15,6 +15,7 @@ dependencies:
   flutter_markdown_plus: ^1.0.12
   flutter_secure_storage: ^11.2.0
   http: ^1.6.0
+  pub_semver: ^2.2.0
   shared_preferences: ^2.5.6
   url_launcher: ^6.3.3
   web: ^1.1.2

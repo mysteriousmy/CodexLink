@@ -109,6 +109,8 @@ app.MapGet("/api/status", async (CodexRpc rpc, CancellationToken ct) =>
         ("onDemandRuntime", true), ("codexError", rpc.StartupError),
         ("taskNotifications", true), ("queuedMessages", true), ("automaticInput", true), ("threadActions", true)));
 });
+app.MapGet("/api/version", () => JsonResult(GatewayVersion.Read()))
+    .WithSummary("Read the running gateway version and download platform without starting Codex");
 app.MapPost("/api/runtime/start", async (CodexRpc rpc, CancellationToken ct) =>
 {
     await rpc.EnsureReadyAsync(ct);

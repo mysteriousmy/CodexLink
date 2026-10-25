@@ -22,6 +22,14 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
+        MethodChannel(engine.dartExecutor.binaryMessenger, "codexlink/app_info").setMethodCallHandler { call, result ->
+            if (call.method != "read") result.notImplemented()
+            else {
+                @Suppress("DEPRECATION")
+                val info = packageManager.getPackageInfo(packageName, 0)
+                result.success(mapOf("version" to info.versionName, "supportedAbis" to Build.SUPPORTED_ABIS.toList()))
+            }
+        }
         channel = MethodChannel(engine.dartExecutor.binaryMessenger, "codexlink/task_notifications")
         channel.setMethodCallHandler { call, result ->
             try {

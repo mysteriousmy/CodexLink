@@ -176,6 +176,12 @@ Scroll toward the end of the session list to fetch more sessions. Scroll toward 
 
 </details>
 
+### Update checks (v0.2.0)
+
+Open **Check for updates / 检查更新** from the mobile session menu, desktop sidebar or connection screen. CodexLink compares the installed App and connected gateway separately against the latest stable [GitHub Release](https://github.com/mysteriousmy/CodexLink/releases/latest), and shows a notice when either is behind. Checks run after connecting and when returning to the foreground, at most once every six hours; manual checks bypass that interval. Automatic checking can be disabled. Failed checks show an error and can be retried; they never mean “up to date.”
+
+Download buttons open the release's actual assets in your browser. Gateway downloads match Linux/Windows and x64/ARM64; Android prefers a supported ABI and uses the universal APK if a specific package is absent. A v0.1.x gateway reports its version but needs manual platform selection. Web updates arrive with the gateway; refresh the page after upgrading it. Platforms without a published package are shown explicitly. Checks use the public GitHub API without sending gateway credentials, and do not install packages or restart services.
+
 ### Session speed (v0.1.9)
 
 The lightning button to the left of the model switches between Fast and standard speed. It lights only after Codex confirms Fast for the current thread. Existing threads, changes from other clients and reconnection use actual session settings; reading a thread never enables Fast. The control stays disabled while the speed is unknown. Both gateway and client must be v0.1.9.
@@ -255,7 +261,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.9
+python3 scripts/build-release.py --all --no-upx --version 0.2.0
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -302,7 +308,7 @@ cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.9/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.2.0/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

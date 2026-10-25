@@ -11,6 +11,7 @@ import '../platform/transport.dart' as transport;
 import 'api_client.dart';
 import 'conversation_controller.dart';
 import 'task_notification_controller.dart';
+import 'update_controller.dart';
 
 enum ConnectionState {
   offline,
@@ -22,9 +23,14 @@ enum ConnectionState {
 }
 
 class AppController extends ChangeNotifier {
-  AppController({ApiClient? api, TaskNotificationController? notifications})
-    : api = api ?? ApiClient(),
-      notifications = notifications ?? TaskNotificationController() {
+  AppController({
+    ApiClient? api,
+    TaskNotificationController? notifications,
+    UpdateController? updates,
+  }) : api = api ?? ApiClient(),
+       notifications = notifications ?? TaskNotificationController() {
+    this.updates = updates ?? UpdateController(api: this.api);
+    this.updates.addListener(notifyListeners);
     conversation = ConversationController(
       this.api,
       onError: reportError,
@@ -36,6 +42,7 @@ class AppController extends ChangeNotifier {
   }
   final ApiClient api;
   final TaskNotificationController notifications;
+  late final UpdateController updates;
   late final ConversationController conversation;
   ConnectionState connection = ConnectionState.offline;
   bool authenticated = false;
@@ -112,6 +119,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> login(String server, String token) async {
+    updates.reset();
     await notifications.clear();
     _stopConnection();
     _accountGeneration++;
@@ -155,6 +163,7 @@ class AppController extends ChangeNotifier {
     conversation.queueSupported = status['queuedMessages'] == true;
     conversation.automaticInputSupported = status['automaticInput'] == true;
     authenticated = true;
+    unawaited(updates.check());
     await _configureNotifications();
     await ensureRuntime().catchError(reportError);
     if (status['codex'] == 'ready') {
@@ -744,6 +753,7 @@ class AppController extends ChangeNotifier {
     _foreground = true;
     notifications.foreground(true);
     if (!authenticated) return;
+    unawaited(updates.check());
     // A sleeping app may miss events or outlive the replay buffer. Reconcile
     // the selected task with a fresh snapshot before allowing interaction.
     _epoch = null;
@@ -850,6 +860,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    updates.reset();
     _threadActions.clear();
     _threadChanges.clear();
     await notifications.clear();
@@ -878,6 +889,7 @@ class AppController extends ChangeNotifier {
     if (exception is ApiError && exception.status == 401) {
       connection = ConnectionState.loginRequired;
       authenticated = false;
+      updates.reset();
       unawaited(notifications.clear());
       _stopConnection();
       notifyListeners();
@@ -889,6 +901,8 @@ class AppController extends ChangeNotifier {
     _disposed = true;
     _stopConnection();
     notifications.dispose();
+    updates.removeListener(notifyListeners);
+    updates.dispose();
     conversation.dispose();
     error.dispose();
     api.close();

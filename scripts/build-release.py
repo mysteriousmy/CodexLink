@@ -180,7 +180,8 @@ def main():
     assets, builds = [], []
     web = ROOT / '.local' / f'release-v{version}' / 'flutter-web'
     run('flutter', '--no-version-check', 'build', 'web', '--release',
-        '--no-web-resources-cdn', '--output', web, cwd=client)
+        '--no-web-resources-cdn', '--build-name=' + version,
+        '--dart-define=CODEXLINK_VERSION=' + version, '--output', web, cwd=client)
     for rid in rids:
         publish = ROOT / '.local' / f'release-v{version}' / rid
         if rid.startswith('linux-musl-'):
@@ -193,13 +194,13 @@ def main():
         builds.append(info)
     if args.android:
         run(os.sys.executable, ROOT / 'scripts/prepare-android-signing.py')
-        run('flutter', '--no-version-check', 'build', 'apk', '--release', '--split-per-abi', '--no-pub', '--build-name=' + version, cwd=client)
+        run('flutter', '--no-version-check', 'build', 'apk', '--release', '--split-per-abi', '--no-pub', '--build-name=' + version, '--dart-define=CODEXLINK_VERSION=' + version, cwd=client)
         for abi in ('arm64-v8a', 'armeabi-v7a', 'x86_64'):
             source = client / f'build/app/outputs/flutter-apk/app-{abi}-release.apk'
             target = output / f'CodexLink-v{version}-android-{abi}.apk'
             shutil.copyfile(source, target)
             assets.append(target)
-        run('flutter', '--no-version-check', 'build', 'apk', '--release', '--no-pub', '--build-name=' + version, cwd=client)
+        run('flutter', '--no-version-check', 'build', 'apk', '--release', '--no-pub', '--build-name=' + version, '--dart-define=CODEXLINK_VERSION=' + version, cwd=client)
         target = output / f'CodexLink-v{version}-android-universal.apk'
         shutil.copyfile(client / 'build/app/outputs/flutter-apk/app-release.apk', target)
         assets.append(target)
