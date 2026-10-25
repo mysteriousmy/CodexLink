@@ -366,3 +366,7 @@ Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试
 本次新增模型左侧 Fast 闪电，并修复设置刷新与权限弹窗状态。Flutter 全套 122 项、Chrome 速度/权限 9 项、托管网关 84 项通过，静态分析无问题。`fast_toggle_left_of_model_tracks_confirmed_session_state` 验证位置、双向切换、等待确认和保留草稿；`fast_snapshot_and_external_events_preserve_old_session_modes` 验证旧会话与其他客户端同步；`test_refresh_repairs_missed_speed_and_permission_events_without_writes` 验证漏事件后刷新恢复实际速度和权限且不写设置；`permission_dialog_tracks_external_changes_and_disables_busy_thread` 验证弹窗实时更新。
 
 隔离完整官方 Codex 0.164.0 安装与 CODEX_HOME，`scripts/smoke-daemon.py` 已验证真实 `priority/default` 切换、原生权限确认和共享服务生命周期；无账号、无模型调用。真实现有后台只做只读状态比对，本机安装保留 v0.1.8，按用户要求稍后更新。
+
+压缩后的 Linux x64 发布包通过全部 84 项契约（104.473 秒）、发布包功能检查及真实 Codex 设置/权限确认。四个服务端包的 ELF/PE 架构、内嵌 Web 元数据及二进制哈希一致；四个 Android APK 的版本为 0.1.9，版本码分别为 ARM64 2010、ARMv7 1010、x86_64 4010、通用 10，签名证书与 v0.1.8 一致。8 个资产的 SHA256SUMS 和 GitHub 上 9 个文件的大小/摘要匹配。已知私有凭据检查覆盖 1,826 个内容项，零匹配；Git 历史扫描 35 个提交，零发现。
+
+四平台发布检查 [40183938015](https://github.com/mysteriousmy/CodexLink/actions/runs/40183938015) 全部成功：Linux x64/ARM64 分别运行实际压缩包的 84 项契约，并通过真实 Codex 0.164.0 的速度、权限与共享生命周期检查；Windows x64/ARM64 运行实际原生包，Codex 端使用协议替身。Windows 真实后台冷启动的既有 CI 限制未解除，本次不将其计为通过。Android 本次没有新增实机触摸验收。

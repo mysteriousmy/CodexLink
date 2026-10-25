@@ -105,7 +105,7 @@ Linux 实际 RID 为 `linux-musl-x64` / `linux-musl-arm64`，OpenSSL 静态链�
 
 当前工具链最低支持 Android 7.0 / API 24。Intel 版本为 **x86_64**，Flutter release 不支持传统 32 位 x86 ABI。官方 APK 使用项目发布证书签名，后续版本可覆盖升级；自行编译会生成自己的私有签名密钥。
 
-v0.1.8 的四个服务端包已通过[原生平台功能检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40118239914)，包括默认队列、立即发送/撤回、问题通知、会话操作、权限及内嵌网页。两个 Linux 架构另各通过 77 项网关契约及真实 Codex 0.164.0 的冷启动、复用和后台存活检查。Windows 包的功能检查使用协议替身；真实 daemon 冷启动仍未验证，因为托管 CI 即使在普通账号下也禁止官方 CLI 脱离父进程启动后台服务。准确范围及桌面验证命令见[验证记录](docs/verification.md)。
+v0.1.9 的四个服务端包已通过[原生平台功能检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40183938015)，包括 Fast/标准速度切换、权限、队列、问题及内嵌网页。两个 Linux 架构另各通过 84 项网关契约与真实 Codex 0.164.0 的速度/权限确认、冷启动、复用和后台存活检查。Windows 包的功能检查使用协议替身；真实 daemon 冷启动仍未验证，托管 CI 禁止官方 CLI 脱离父进程启动后台服务。准确范围及桌面验证命令见[验证记录](docs/verification.md)。
 
 同时下载 `SHA256SUMS` 校验文件。Linux/macOS 可在包含下载文件的目录运行 `sha256sum -c SHA256SUMS`（未下载的文件会提示缺失），或单独比较目标文件摘要；Windows 用 `Get-FileHash .\文件名 -Algorithm SHA256` 对照对应条目。
 
