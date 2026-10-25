@@ -23,54 +23,63 @@ class PermissionPicker extends StatelessWidget {
         contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
         content: SizedBox(
           width: 440,
-          child: FutureBuilder<List<JsonMap>>(
-            future: options,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return Text('无法读取权限：${snapshot.error}');
-              if (!snapshot.hasData) {
-                return const SizedBox(
-                  height: 80,
-                  child: Center(child: CircularProgressIndicator()),
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => FutureBuilder<List<JsonMap>>(
+              future: options,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return Text('无法读取权限：${snapshot.error}');
+                if (!snapshot.hasData) {
+                  return const SizedBox(
+                    height: 80,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          '当前：${controller.permissionLabel} · 对后续轮次生效',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final option in snapshot.data!)
+                        ListTile(
+                          enabled:
+                              option['allowed'] == true &&
+                              controller.canChangePermissions,
+                          selected:
+                              option['id'] == controller.permissions['preset'],
+                          leading: Icon(
+                            option['id'] == controller.permissions['preset']
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                          ),
+                          title: Text(option['label'] as String),
+                          subtitle: Text(
+                            option['allowed'] == true
+                                ? option['description'] as String
+                                : option['reason'] as String,
+                          ),
+                          onTap:
+                              option['allowed'] == true &&
+                                  controller.canChangePermissions
+                              ? () => Navigator.pop(
+                                  context,
+                                  option['id'] as String,
+                                )
+                              : null,
+                        ),
+                    ],
+                  ),
                 );
-              }
-              return SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        '当前：${controller.permissionLabel} · 对后续轮次生效',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    for (final option in snapshot.data!)
-                      ListTile(
-                        enabled: option['allowed'] == true,
-                        selected:
-                            option['id'] == controller.permissions['preset'],
-                        leading: Icon(
-                          option['id'] == controller.permissions['preset']
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
-                        ),
-                        title: Text(option['label'] as String),
-                        subtitle: Text(
-                          option['allowed'] == true
-                              ? option['description'] as String
-                              : option['reason'] as String,
-                        ),
-                        onTap: option['allowed'] == true
-                            ? () =>
-                                  Navigator.pop(context, option['id'] as String)
-                            : null,
-                      ),
-                  ],
-                ),
-              );
-            },
+              },
+            ),
           ),
         ),
         actions: [

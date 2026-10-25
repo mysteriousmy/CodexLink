@@ -38,6 +38,8 @@ public static class PermissionModes
             _ => null
         });
         var mode = Modes.FirstOrDefault(m => m.Profile == inferredProfile &&
+            kind == (m.Sandbox switch { "read-only" => "readOnly", "workspace-write" => "workspaceWrite", _ => "dangerFullAccess" }) &&
+            (kind == "dangerFullAccess" || sandbox?["networkAccess"]?.GetValue<bool>() != true) &&
             JsonNode.DeepEquals(policy, JsonValue.Create(m.Policy)) && m.Reviewer == reviewer);
         return Json.Object(("preset", mode?.Id), ("label", mode?.Label ?? (sandbox is null ? "权限未知" : "自定义权限")),
             ("approvalPolicy", policy.Copy()), ("approvalsReviewer", reviewer), ("sandboxPolicy", sandbox.Copy()),

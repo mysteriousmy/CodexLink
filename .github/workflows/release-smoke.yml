@@ -5,7 +5,7 @@ on:
       tag:
         description: Published release tag to verify
         required: true
-        default: v0.1.8
+        default: v0.1.9
       verify_windows_daemon:
         description: Also attempt real Windows daemon startup (hosted runner job restrictions currently prevent it)
         type: boolean

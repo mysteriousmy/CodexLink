@@ -71,8 +71,9 @@ def main():
             return subprocess.run([str(codex), 'app-server', 'daemon', action], env=env,
                                   cwd=root, capture_output=True, text=True, timeout=45)
 
-        def request(path, method='GET'):
-            req = urllib.request.Request(base + path, data=b'{}' if method == 'POST' else None,
+        def request(path, method='GET', payload=None):
+            body = json.dumps(payload or {}).encode() if method in ('POST', 'PUT') else None
+            req = urllib.request.Request(base + path, data=body,
                 headers={'Authorization':'Bearer ' + token, 'Content-Type':'application/json'}, method=method)
             try:
                 with urllib.request.urlopen(req, timeout=60) as response:
@@ -120,6 +121,24 @@ def main():
                     assert state == {'codex':'ready', 'codexTransport':'shared'}, state
                     state = request('/api/status')
                     assert state['codex'] == 'ready' and state['codexTransport'] == 'shared', state
+                    if cycle == 0:
+                        thread = request('/api/threads', 'POST', {'path':str(root)})['thread']['id']
+                        path = '/api/threads/' + thread
+                        snapshot = request(path)
+                        assert snapshot['serviceTierKnown'], snapshot
+                        permissions = snapshot['permissions']
+                        for mode, expected in [('fast', 'priority'), ('standard', 'default')]:
+                            actual = request(path + '/speed', 'PUT', {'mode':mode})
+                            assert actual == {'serviceTier':expected, 'serviceTierKnown':True}, actual
+                            snapshot = request(path)
+                            assert snapshot['serviceTier'] == expected, snapshot
+                            assert snapshot['permissions'] == permissions
+                        actual = request(path + '/permissions', 'PUT', {'preset':'read-only'})
+                        assert actual['preset'] == 'read-only', actual
+                        snapshot = request(path)
+                        assert snapshot['permissions'] == actual and snapshot['serviceTier'] == 'default'
+                        assert snapshot['activeTurnId'] is None
+                        print('Real per-thread fast/standard and permissions confirmed without model calls.', flush=True)
                     stop_gateway(process); process = None
                     running = daemon('version')
                     assert running.returncode == 0, running.stderr

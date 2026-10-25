@@ -176,6 +176,12 @@ Scroll toward the end of the session list to fetch more sessions. Scroll toward 
 
 </details>
 
+### Session speed (v0.1.9)
+
+The lightning button to the left of the model switches between Fast and standard speed. It lights only after Codex confirms Fast for the current thread. Existing threads, changes from other clients and reconnection use actual session settings; reading a thread never enables Fast. The control stays disabled while the speed is unknown. Both gateway and client must be v0.1.9.
+
+Permission labels and open permission dialogs also refresh from actual session settings, preserving custom modes. Speed changes apply to subsequent requests in this thread; an in-progress turn keeps its current settings.
+
 ## Configuration and data
 
 The full format is in [config.example.json](deploy/config.example.json). Generate your own live configuration with `--init` and then edit it; do not use placeholder credentials.
@@ -249,7 +255,7 @@ python3 scripts/build-release.py --rids linux-musl-x64
 python3 scripts/build-release.py --rids win-x64 win-arm64
 
 # Unpacked binaries, or a version override
-python3 scripts/build-release.py --all --no-upx --version 0.1.8
+python3 scripts/build-release.py --all --no-upx --version 0.1.9
 
 # Skip already completed Flutter checks during a local packaging retry
 python3 scripts/build-release.py --all --skip-checks
@@ -296,7 +302,7 @@ cd ..
 
 # Linux: managed-server or Native AOT black-box tests with deterministic fake Codex peers
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.8/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.9/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

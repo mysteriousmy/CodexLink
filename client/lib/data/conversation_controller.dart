@@ -73,6 +73,22 @@ class ConversationController extends ChangeNotifier {
   String? activeTurnId;
   String? model;
   String? effort;
+  String? serviceTier;
+  bool serviceTierKnown = false;
+  bool speedBusy = false;
+  bool get fastMode =>
+      serviceTierKnown && (serviceTier == 'priority' || serviceTier == 'fast');
+  bool get canChangeSpeed =>
+      threadId != null &&
+      serviceTierKnown &&
+      canControl &&
+      !archived &&
+      !detached &&
+      !loading &&
+      !sending &&
+      !uncertain &&
+      !permissionsBusy &&
+      !speedBusy;
   JsonMap? goal;
   JsonMap permissions = {};
   bool permissionsBusy = false;
@@ -132,6 +148,7 @@ class ConversationController extends ChangeNotifier {
       canControl &&
       !sending &&
       !permissionsBusy &&
+      !speedBusy &&
       !loading &&
       !uncertain &&
       !hasUnreadyFiles &&
@@ -149,6 +166,7 @@ class ConversationController extends ChangeNotifier {
       !sending &&
       !uncertain &&
       !permissionsBusy &&
+      !speedBusy &&
       activeTurnId == null &&
       goal?['status'] != 'active';
 
@@ -157,19 +175,62 @@ class ConversationController extends ChangeNotifier {
     if (id == null || !canChangePermissions) return [];
     permissionsBusy = true;
     final permissionVersion = _permissionEventVersion;
+    final session = _sessionGeneration;
     notifyListeners();
     try {
       final result = asMap(
         await api.request('GET', '/api/threads/$id/permissions'),
       );
-      if (id != threadId) return [];
+      if (_disposed || session != _sessionGeneration || id != threadId) {
+        return [];
+      }
       if (_permissionEventVersion == permissionVersion) {
         permissions = asMap(result['current']);
       }
       return asMaps(result['options']);
     } finally {
-      if (id == threadId) {
+      if (!_disposed && session == _sessionGeneration && id == threadId) {
         permissionsBusy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> setFastMode(bool enabled) async {
+    final id = threadId;
+    if (id == null || !canChangeSpeed) return;
+    final session = _sessionGeneration;
+    final settingsVersion = _permissionEventVersion;
+    speedBusy = true;
+    notifyListeners();
+    try {
+      final result = asMap(
+        await api.request(
+          'PUT',
+          '/api/threads/$id/speed',
+          body: {'mode': enabled ? 'fast' : 'standard'},
+        ),
+      );
+      if (!_disposed &&
+          session == _sessionGeneration &&
+          id == threadId &&
+          settingsVersion == _permissionEventVersion) {
+        serviceTierKnown = result['serviceTierKnown'] == true;
+        serviceTier = result['serviceTier'] as String?;
+      }
+    } catch (error) {
+      if (!_disposed && session == _sessionGeneration && id == threadId) {
+        if (settingsVersion == _permissionEventVersion &&
+            (error is! ApiError ||
+                error.code == 'speed_unconfirmed' ||
+                error.status == null)) {
+          serviceTierKnown = false;
+        }
+        rethrow;
+      }
+    } finally {
+      if (!_disposed && session == _sessionGeneration && id == threadId) {
+        speedBusy = false;
         notifyListeners();
       }
     }
@@ -181,6 +242,7 @@ class ConversationController extends ChangeNotifier {
     }
     permissionsBusy = true;
     final permissionVersion = _permissionEventVersion;
+    final session = _sessionGeneration;
     notifyListeners();
     try {
       final result = asMap(
@@ -190,12 +252,16 @@ class ConversationController extends ChangeNotifier {
           body: {'preset': preset},
         ),
       );
-      if (threadId == expectedThread &&
+      if (!_disposed &&
+          session == _sessionGeneration &&
+          threadId == expectedThread &&
           _permissionEventVersion == permissionVersion) {
         permissions = result;
       }
     } finally {
-      if (threadId == expectedThread) {
+      if (!_disposed &&
+          session == _sessionGeneration &&
+          threadId == expectedThread) {
         permissionsBusy = false;
         notifyListeners();
       }
@@ -222,7 +288,11 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> select(String id, {bool archived = false}) async {
-    if (sending || uncertain || permissionsBusy || queueActionBusy) {
+    if (sending ||
+        uncertain ||
+        permissionsBusy ||
+        speedBusy ||
+        queueActionBusy) {
       throw const ApiError('请先等待当前提交完成并核对结果，再切换会话。');
     }
     _draftTimer?.cancel();
@@ -231,6 +301,8 @@ class ConversationController extends ChangeNotifier {
       await preferences.setString(_draftKey(threadId!), draft);
     }
     threadId = id;
+    serviceTier = null;
+    serviceTierKnown = false;
     acceptedSteers = asMaps(
       jsonDecode(
         preferences.getString('${_draftKey(id)}:accepted-steers') ?? '[]',
@@ -305,6 +377,8 @@ class ConversationController extends ChangeNotifier {
       usage = TokenUsage.fromJson(asMap(snapshot['usage']));
       goal = target['goal'] == null ? null : asMap(target['goal']);
       permissions = asMap(snapshot['permissions']);
+      serviceTier = snapshot['serviceTier'] as String?;
+      serviceTierKnown = snapshot['serviceTierKnown'] == true;
       approvals = asMaps(snapshot['approvals']);
       files = asMaps(snapshot['attachments']);
       _mergeHistory(asMaps(history['data']), prepend: false);
@@ -596,6 +670,11 @@ class ConversationController extends ChangeNotifier {
       case 'thread/settings/updated':
         _permissionEventVersion++;
         permissions = asMap(parameters['permissions']);
+        final settings = asMap(parameters['threadSettings']);
+        if (settings.containsKey('serviceTier')) {
+          serviceTier = settings['serviceTier'] as String?;
+          serviceTierKnown = true;
+        }
         notifyListeners();
       case 'thread/goal/cleared':
         goal = null;
@@ -1121,7 +1200,7 @@ class ConversationController extends ChangeNotifier {
   Future<void> submitQuestion(QuestionDraft response) async {
     if (response.busy || response.sent) return;
     if (!questionAvailable(response)) throw const ApiError('问题已处理或失效。');
-    if (sending || uncertain || loading || permissionsBusy) {
+    if (sending || uncertain || loading || permissionsBusy || speedBusy) {
       throw const ApiError('请先等待同步或其他提交完成，再回答问题。');
     }
     if (!response.valid) throw const ApiError('请回答每个问题。');
@@ -1205,10 +1284,12 @@ class ConversationController extends ChangeNotifier {
   }
 
   void runtimeStopped() {
+    _permissionEventVersion++;
     activeTurnId = null;
     activity = null;
     approvals = [];
     permissions = {};
+    serviceTierKnown = false;
     notifyListeners();
   }
 
@@ -1433,6 +1514,9 @@ class ConversationController extends ChangeNotifier {
     threadId = null;
     permissions = {};
     permissionsBusy = false;
+    speedBusy = false;
+    serviceTier = null;
+    serviceTierKnown = false;
     thread = {};
     activeTurnId = null;
     goal = null;

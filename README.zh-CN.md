@@ -177,6 +177,12 @@ App 和网页输入框的模型旁提供盾牌权限选择器：
 
 </details>
 
+### 会话速度（v0.1.9）
+
+模型选项左侧的闪电控制 Fast 模式：亮起表示 Fast，熄灭表示标准速度；点击切换，收到 Codex 的真实设置确认后才更新。状态来自当前会话，旧会话、其他客户端的修改与重新连接都会同步，读取会话不会自动开启 Fast。尚未读到状态时按钮禁用。此功能需要网关与客户端均为 v0.1.9。
+
+权限栏也从实际会话设置刷新，打开的权限弹窗实时更新；自定义权限不会被误标成预设。速度设置只作用于当前会话的后续请求，正在执行的轮次保持原有设置。
+
 ## 配置与数据
 
 完整格式见 [config.example.json](deploy/config.example.json)。请先 `--init` 生成真实配置，再按需编辑，不能直接使用密钥占位值。
@@ -289,7 +295,7 @@ flutter --no-version-check test --platform chrome test/web
 cd ..
 
 ./scripts/test-gateway.sh
-CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.8/linux-musl-x64/CodexLink.Server" \
+CODEXLINK_TEST_COMMAND="$PWD/.local/release-v0.1.9/linux-musl-x64/CodexLink.Server" \
   .local/test-venv/bin/python -m unittest discover -s tests -v
 ```
 

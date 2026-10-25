@@ -359,3 +359,10 @@ Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试
 **Windows 真实 daemon 冷启动未验证。** [实际失败记录](https://github.com/mysteriousmy/CodexLink/actions/runs/40118112344)确认测试账号非管理员，但处于禁止后台脱离的 Windows Job 中，官方 CLI 拒绝启动。改变测试启动方式后仍受宿主约束，因此不能以 Linux 通过或 Windows 协议替身通过代替真实生命周期验证。依据[同版本官方限制检查](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/app-server-daemon/src/backend/windows.rs)，相同命令还受账号权限和父进程约束影响。CI 默认明确记录这项未验证边界；`verify_windows_daemon=true` 保留严格诊断，失败不会被转成成功。
 
 可在 Windows 普通用户、允许后台进程脱离的终端运行 `python scripts/smoke-daemon.py <CodexLink.Server.exe> <完整安装中的codex.exe>` 进行桌面验证。脚本使用临时 CODEX_HOME、无账号和模型调用，并清理测试 daemon；它不会操作用户现有共享服务。
+
+
+## v0.1.9 会话速度与权限同步
+
+本次新增模型左侧 Fast 闪电，并修复设置刷新与权限弹窗状态。Flutter 全套 122 项、Chrome 速度/权限 9 项、托管网关 84 项通过，静态分析无问题。`fast_toggle_left_of_model_tracks_confirmed_session_state` 验证位置、双向切换、等待确认和保留草稿；`fast_snapshot_and_external_events_preserve_old_session_modes` 验证旧会话与其他客户端同步；`test_refresh_repairs_missed_speed_and_permission_events_without_writes` 验证漏事件后刷新恢复实际速度和权限且不写设置；`permission_dialog_tracks_external_changes_and_disables_busy_thread` 验证弹窗实时更新。
+
+隔离完整官方 Codex 0.164.0 安装与 CODEX_HOME，`scripts/smoke-daemon.py` 已验证真实 `priority/default` 切换、原生权限确认和共享服务生命周期；无账号、无模型调用。真实现有后台只做只读状态比对，本机安装保留 v0.1.8，按用户要求稍后更新。

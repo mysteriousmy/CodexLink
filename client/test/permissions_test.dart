@@ -231,4 +231,82 @@ void main() {
       await t.pumpWidget(const SizedBox.shrink());
     },
   );
+  testWidgets(
+    'permission_dialog_tracks_external_changes_and_disables_busy_thread',
+    (t) async {
+      final c =
+          ConversationController(
+              ApiClient(
+                client: MockClient(
+                  (_) async => json({
+                    'current': {'preset': 'default', 'label': '默认'},
+                    'options': [
+                      {
+                        'id': 'default',
+                        'label': '默认',
+                        'description': '工作区',
+                        'allowed': true,
+                      },
+                      {
+                        'id': 'full-access',
+                        'label': '完全访问',
+                        'description': '主机',
+                        'allowed': true,
+                      },
+                    ],
+                  }),
+                ),
+              ),
+              onError: (e) => fail('$e'),
+              onTurnFinished: () {},
+            )
+            ..threadId = 't'
+            ..permissions = {'preset': 'default', 'label': '默认'};
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: c,
+              builder: (_, _) =>
+                  PermissionPicker(controller: c, onError: (e) => fail('$e')),
+            ),
+          ),
+        ),
+      );
+      await t.tap(find.byKey(const ValueKey('permission-picker')));
+      await t.pumpAndSettle();
+      expect(find.text('当前：默认 · 对后续轮次生效'), findsOneWidget);
+      c.handleEvent('thread/settings/updated', {
+        'threadId': 't',
+        'permissions': {'preset': 'full-access', 'label': '完全访问'},
+      });
+      await t.pump();
+      expect(find.text('当前：完全访问 · 对后续轮次生效'), findsOneWidget);
+      expect(
+        t.widget<ListTile>(find.widgetWithText(ListTile, '完全访问')).selected,
+        isTrue,
+      );
+      expect(
+        t.widget<ListTile>(find.widgetWithText(ListTile, '默认')).selected,
+        isFalse,
+      );
+      c.handleEvent('turn/started', {
+        'threadId': 't',
+        'turn': {'id': 'active'},
+      });
+      await t.pump();
+      expect(
+        t.widget<ListTile>(find.widgetWithText(ListTile, '默认')).enabled,
+        isFalse,
+      );
+      expect(
+        t.widget<ListTile>(find.widgetWithText(ListTile, '完全访问')).onTap,
+        isNull,
+      );
+      await t.tap(find.text('取消'));
+      await t.pumpAndSettle();
+      expect(c.permissionLabel, '完全访问');
+    },
+  );
 }

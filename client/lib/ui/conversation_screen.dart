@@ -1042,6 +1042,43 @@ class _ComposerState extends State<Composer> {
             ),
             Row(
               children: [
+                IconButton(
+                  key: const ValueKey('fast-mode-toggle'),
+                  tooltip: !controller.serviceTierKnown
+                      ? '速度状态未知，请同步会话'
+                      : controller.fastMode
+                      ? 'Fast 模式已开启 · 点击切换为标准速度'
+                      : '当前为${controller.serviceTier == 'flex' ? 'Flex' : '标准速度'} · 点击开启 Fast 模式',
+                  isSelected: controller.fastMode,
+                  onPressed:
+                      widget.appController.usable && controller.canChangeSpeed
+                      ? () async {
+                          try {
+                            await controller.setFastMode(!controller.fastMode);
+                          } catch (error) {
+                            widget.appController.reportError(error);
+                          }
+                        }
+                      : null,
+                  style: IconButton.styleFrom(
+                    foregroundColor: colors.onSurfaceVariant,
+                    backgroundColor: controller.fastMode
+                        ? colors.primaryContainer
+                        : Colors.transparent,
+                  ),
+                  icon: controller.speedBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.bolt_outlined, size: 22),
+                  selectedIcon: Icon(
+                    Icons.bolt_rounded,
+                    size: 22,
+                    color: colors.primary,
+                  ),
+                ),
                 Expanded(child: _modelPicker(context)),
                 PermissionPicker(
                   controller: controller,

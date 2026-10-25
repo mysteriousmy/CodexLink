@@ -231,3 +231,10 @@ v0.1.8 的 ThreadListTile 在 App 长按时弹出操作对话框，取消或返�
 GET /api/status 只观察运行状态，返回 idle/starting/ready/unavailable、onDemandRuntime 和 codexError；POST /api/runtime/start 鉴权后显式等待启动，返回 ready/shared。初次启动失败立即结束并允许用户重试；已连接实例断开后有限次重连，每次重新发现官方 socket。失败绝不隐式启动私有写入者。
 
 POST /api/threads/{id}/input 在会话锁内读取真实轮次：空闲时 turn/start，活动时 thread/queue/add。默认补充与显式排队共用原生持久队列、16 条容量、附件/引用投影、去重及回执；本轮结束后 Codex 自动调度。立即 steer 和撤回仍使用现有队列动作，未知结果不重发。已接收的旧版 steer 仅显示已提交及同步状态，不冒充可撤回。
+
+
+## 会话速度与设置同步（v0.1.9）
+
+`PUT /api/threads/{id}/speed` 仅接受 `mode: fast/standard`，分别使用原生 `thread/settings/update` 的 `serviceTier: priority/default`。default 是显式标准速度，不能用省略/null 代替后再次继承默认 Fast。接口等待 `thread/settings/updated` 中相符的实际设置，失败不伪装成功；不会修改全局配置、模型、权限或 Goal，也不打断活跃轮次。
+
+会话快照提供 `serviceTier` 与 `serviceTierKnown`。打开与刷新已有会话、读取权限选项时，重新用不含覆盖参数的 `thread/resume` 取得原生设置；新建未持久化的空会话保留创建响应和实时事件，不强行 resume。外部设置事件更新两端状态；客户端事件版本和登录代次阻止旧 HTTP 响应覆盖新状态，断线失去运行时后速度显示未知。权限弹窗监听同一控制器；命名权限配置还需与实际沙箱和审批一致，才能显示为预设。

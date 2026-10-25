@@ -140,12 +140,17 @@ def call(method, p):
         return {'data':[{'id':x, 'description':x, 'allowed':allowed is None or allowed.get(x, False)} for x in [':read-only', ':workspace', ':danger-full-access']], 'nextCursor':None}
     if method == 'thread/settings/update':
         current = dict(settings[tid])
-        profile = p['permissions']
-        current.update(approvalPolicy=p['approvalPolicy'], approvalsReviewer=p['approvalsReviewer'], activePermissionProfile={'id':profile, 'extends':None})
-        current['sandboxPolicy'] = {':read-only':{'type':'readOnly', 'networkAccess':False}, ':workspace':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, ':danger-full-access':{'type':'dangerFullAccess'}}[profile]
+        if 'serviceTier' in p:
+            if Path(os.environ['CODEXLINK_DATA'], 'reject-speed').exists(): raise ValueError('Service tier rejected by fixture policy')
+            current['serviceTier'] = p['serviceTier']
+        if 'permissions' in p:
+            profile = p['permissions']
+            current.update(approvalPolicy=p['approvalPolicy'], approvalsReviewer=p['approvalsReviewer'], activePermissionProfile={'id':profile, 'extends':None})
+            current['sandboxPolicy'] = {':read-only':{'type':'readOnly', 'networkAccess':False}, ':workspace':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, ':danger-full-access':{'type':'dangerFullAccess'}}[profile]
         settings[tid] = current
         # Real app-server sends confirmation after the empty RPC response.
-        later(lambda: event('thread/settings/updated', threadId=tid, threadSettings=current))
+        if not Path(os.environ['CODEXLINK_DATA'], 'suppress-settings-event').exists():
+            later(lambda: event('thread/settings/updated', threadId=tid, threadSettings=current))
         return {}
     if method == "thread/start":
         tid = str(uuid.uuid4())
@@ -156,7 +161,7 @@ def call(method, p):
             "preview": "Fixture task",
             "turns": [],
         }
-        settings[tid] = {'approvalPolicy':p['approvalPolicy'], 'approvalsReviewer':p['approvalsReviewer'], 'sandboxPolicy':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, 'activePermissionProfile':{'id':p['permissions'], 'extends':None}}
+        settings[tid] = {'serviceTier':None, 'approvalPolicy':p['approvalPolicy'], 'approvalsReviewer':p['approvalsReviewer'], 'sandboxPolicy':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':False}, 'activePermissionProfile':{'id':p['permissions'], 'extends':None}}
         loaded.add(tid)
         subscribed.add(tid)
         return {"thread": threads[tid], **settings[tid]}
@@ -202,6 +207,10 @@ def call(method, p):
         event('thread/unarchived', threadId=tid)
         return {"thread": threads[tid]}
     if method in ["thread/read", "thread/resume"]:
+        if tid in ['existing-fast', 'existing-standard', 'existing-unknown', 'existing-custom'] and tid not in threads:
+            threads[tid] = {'id':tid, 'cwd':os.environ['CODEXLINK_DATA'], 'turns':[]}
+            settings[tid] = {'approvalPolicy':'on-request', 'approvalsReviewer':'user', 'sandboxPolicy':{'type':'workspaceWrite', 'writableRoots':[], 'networkAccess':tid == 'existing-custom'}, 'activePermissionProfile':{'id':':workspace', 'extends':None}}
+            if tid != 'existing-unknown': settings[tid]['serviceTier'] = 'priority' if tid == 'existing-fast' else None
         if tid == "invalid-metadata":
             return {"thread": {"id": tid, "cwd": "relative/path"}}
         if tid == "outside" and tid not in threads:

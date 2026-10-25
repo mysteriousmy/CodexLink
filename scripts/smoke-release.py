@@ -80,6 +80,9 @@ def main():
                 status, _, body = request('/api/threads', {'projectId': 'codex-project'})
                 assert status == 201
                 thread = json.loads(body)['thread']['id']
+                for mode, tier in [('fast', 'priority'), ('standard', 'default')]:
+                    status, _, body = request(f'/api/threads/{thread}/speed', {'mode':mode}, method='PUT')
+                    assert status == 200 and json.loads(body) == {'serviceTier':tier, 'serviceTierKnown':True}
                 for mode in ('read-only', 'default', 'auto-review', 'full-access'):
                     status, _, body = request(f'/api/threads/{thread}/permissions', {'preset':mode}, method='PUT')
                     assert status == 200 and json.loads(body)['preset'] == mode

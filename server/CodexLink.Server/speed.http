@@ -1,0 +1,21 @@
+@baseUrl = http://localhost:47821
+@token = REPLACE_WITH_LOCAL_DEVICE_TOKEN
+@threadId = REPLACE_WITH_THREAD_ID
+
+### Confirm actual speed and permissions without changing the session
+GET {{baseUrl}}/api/threads/{{threadId}}
+Authorization: Bearer {{token}}
+
+### Enable Fast for subsequent requests in this thread
+PUT {{baseUrl}}/api/threads/{{threadId}}/speed
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"mode":"fast"}
+
+### Explicit standard speed
+PUT {{baseUrl}}/api/threads/{{threadId}}/speed
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"mode":"standard"}

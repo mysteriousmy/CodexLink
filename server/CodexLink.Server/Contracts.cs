@@ -18,6 +18,8 @@ public sealed record QueueActionRequest(string RequestId, string? ExpectedTurnId
 /// <summary>Native goal update. BudgetSpecified distinguishes no change from removing a budget.</summary>
 public sealed record SetGoalRequest(string? Objective, string? Status, long? TokenBudget, bool BudgetSpecified = false);
 public sealed record SetPermissionsRequest(string Preset);
+/// <summary>Explicit per-thread speed: fast or standard, confirmed by Codex.</summary>
+public sealed record SetSpeedRequest(string Mode);
 /// <summary>Answer an active Codex server request.</summary>
 public sealed record ApprovalRequest(JsonElement Result);
 /// <summary>An uploaded file owned by a thread.</summary>
@@ -41,6 +43,7 @@ public sealed class ApiException(int status, string code, string message) : Exce
 [JsonSerializable(typeof(ThreadActionRequest))]
 [JsonSerializable(typeof(SetGoalRequest))]
 [JsonSerializable(typeof(SetPermissionsRequest))]
+[JsonSerializable(typeof(SetSpeedRequest))]
 [JsonSerializable(typeof(ApprovalRequest))]
 [JsonSerializable(typeof(AttachmentRecord))]
 [JsonSerializable(typeof(AttachmentRecord[]))]

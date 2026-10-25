@@ -22,8 +22,13 @@ public sealed partial class SessionService
         public JsonNode? Usage { get; set; }
         public JsonNode? Goal { get; set; }
         public JsonNode? Permissions { get; set; }
+        public string? ServiceTier { get; set; }
+        public bool ServiceTierKnown { get; set; }
+        public string? PendingServiceTier { get; set; }
+        public TaskCompletionSource<JsonObject>? SpeedChanged { get; set; }
         public long SettingsEventVersion { get; set; }
         public TaskCompletionSource<JsonNode?>? SettingsChanged { get; set; }
+        public string? PendingPermissionPreset { get; set; }
         public string? ControlReason { get; set; }
         public DateTimeOffset Accessed { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -49,7 +54,7 @@ public sealed partial class SessionService
     {
         if (method == "runtime/stopped")
         {
-            foreach (var state in _sessions.Values) { state.Loaded = false; state.ActiveTurn = null; state.Usage = null; state.Permissions = null; }
+            foreach (var state in _sessions.Values) { state.Loaded = false; state.ActiveTurn = null; state.Usage = null; state.Permissions = null; state.ServiceTierKnown = false; }
             return;
         }
         if (parameters.String("threadId") is not { } id || !_sessions.TryGetValue(id, out var session)) return;
@@ -74,9 +79,15 @@ public sealed partial class SessionService
             case "thread/goal/cleared": session.Goal = null; break;
             case "thread/settings/updated":
                 session.Permissions = PermissionModes.Read(parameters?["threadSettings"]);
+                ReadServiceTier(session, parameters?["threadSettings"]);
                 session.SettingsEventVersion++;
                 parameters!["permissions"] = session.Permissions.Copy();
-                session.SettingsChanged?.TrySetResult(session.Permissions.Copy());
+                if (session.Permissions.String("preset") == session.PendingPermissionPreset)
+                    session.SettingsChanged?.TrySetResult(session.Permissions.Copy());
+                if (session.ServiceTierKnown && (session.PendingServiceTier == "priority"
+                    ? session.ServiceTier is "priority" or "fast"
+                    : session.PendingServiceTier == "default" && session.ServiceTier is null or "default"))
+                    session.SpeedChanged?.TrySetResult(SpeedState(session));
                 break;
             case "thread/closed":
                 session.Loaded = false; session.ActiveTurn = null; session.TurnEventVersion++;
@@ -135,7 +146,9 @@ public sealed partial class SessionService
         if (!string.IsNullOrWhiteSpace(request.Model)) parameters["model"] = request.Model;
         var response = await _rpc.CallAsync("thread/start", parameters);
         var id = response?["thread"].String("id") ?? throw new ApiException(502, "invalid_codex_response", "Codex 未返回会话 ID。");
-        AddSession(id, new SessionState(project) { Loaded = true, Materialized = false, Permissions = PermissionModes.Read(response) });
+        var session = new SessionState(project) { Loaded = true, Materialized = false, Permissions = PermissionModes.Read(response) };
+        ReadServiceTier(session, response);
+        AddSession(id, session);
         return response;
     }
 
@@ -167,11 +180,14 @@ public sealed partial class SessionService
     private JsonObject SessionParameters(ProjectConfig project) => Json.Object(("cwd", project.Path),
         ("permissions", ":workspace"), ("approvalPolicy", "on-request"), ("approvalsReviewer", "user"));
 
-    private async Task ResumeInsideLockAsync(string id, SessionState session)
+    private async Task ResumeInsideLockAsync(string id, SessionState session, bool refreshSettings = false)
     {
         if (session.Archived) throw new ApiException(409, "thread_archived", "会话已归档，请先恢复会话。");
         if (session.Closed) throw new ApiException(409, "thread_closed", "会话已关闭，请重新打开后继续。");
-        if (session.Loaded) return;
+        // A refresh must read the runtime's current settings, including changes
+        // made by another client while this gateway had no live connection.
+        // Newly created empty threads cannot be resumed before their first turn.
+        if (session.Loaded && (!refreshSettings || !session.Materialized)) return;
         // Rejoin the exact thread without replacing its model, working directory,
         // permissions or goal. Another client may already be executing it.
         var parameters = Json.Object(("threadId", id), ("excludeTurns", true));
@@ -180,7 +196,11 @@ public sealed partial class SessionService
         var response = await _rpc.CallAsync("thread/resume", parameters);
         session.Loaded = true;
         session.ControlReason = null;
-        if (session.SettingsEventVersion == settingsVersion) session.Permissions = PermissionModes.Read(response);
+        if (session.SettingsEventVersion == settingsVersion)
+        {
+            session.Permissions = PermissionModes.Read(response);
+            ReadServiceTier(session, response);
+        }
         if (session.TurnEventVersion == eventVersion && response?["thread"]?["turns"] is JsonArray { Count: > 0 } turns)
             session.ActiveTurn = turns.FirstOrDefault(t => t.String("status") == "inProgress").String("id");
     }
@@ -206,7 +226,7 @@ public sealed partial class SessionService
                 : session.Closed ? "此会话已关闭或正在等待卸载，重新打开后可继续。" : null;
             if (!archived && !session.Closed)
             {
-                try { await ResumeInsideLockAsync(id, session); }
+                try { await ResumeInsideLockAsync(id, session, refreshSettings: true); }
                 catch (ApiException e) when (e.Code == "codex_rpc_error" && e.Message.Contains("active writer", StringComparison.OrdinalIgnoreCase))
                 {
                     session.ControlReason = "另一个独立 Codex 进程持有此会话。可查看历史；请先在原客户端释放会话，再同步重试。";
@@ -225,6 +245,7 @@ public sealed partial class SessionService
             return Json.Object(("thread", metadata?["thread"].Copy()), ("activeTurnId", session.ActiveTurn),
                 ("usage", session.Usage.Copy()), ("goal", session.Goal.Copy()),
                 ("permissions", session.Permissions.Copy()),
+                ("serviceTier", session.ServiceTier), ("serviceTierKnown", session.ServiceTierKnown),
                 ("canControl", session.ControlReason is null), ("controlReason", session.ControlReason), ("archived", archived), ("closed", session.Closed),
                 ("approvals", new JsonArray(_rpc.Approvals.Where(a => a?["params"].String("threadId") == id).Select(a => a.Copy()).ToArray())),
                 ("attachments", JsonSerializer.SerializeToNode(_attachments.ForThread(id), JsonContext.Default.AttachmentRecordArray)));
@@ -240,7 +261,7 @@ public sealed partial class SessionService
         try
         {
             if (session.ControlReason is not null) throw new ApiException(409, "thread_read_only", session.ControlReason);
-            await ResumeInsideLockAsync(id, session);
+            await ResumeInsideLockAsync(id, session, refreshSettings: true);
             return Json.Object(("current", session.Permissions.Copy()),
                 ("options", await PermissionModes.OptionsAsync(_rpc, session.Project.Path, ct)));
         }
@@ -265,6 +286,7 @@ public sealed partial class SessionService
             if (!options.Any(o => o.String("id") == request.Preset && o?["allowed"]?.GetValue<bool>() == true))
                 throw new ApiException(403, "permissions_not_allowed", "当前 Codex 环境或管理策略不允许此权限。");
             parameters["threadId"] = id;
+            session.PendingPermissionPreset = request.Preset;
             session.SettingsChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
             await _rpc.CallAsync("thread/settings/update", parameters);
             // Settings arrive after the empty response, including for empty threads
@@ -272,7 +294,7 @@ public sealed partial class SessionService
             try { return await session.SettingsChanged.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
             catch (TimeoutException) { throw new ApiException(504, "permissions_unconfirmed", "权限更新已提交，但尚未收到 Codex 确认；请同步后核对，不要重复提交。"); }
         }
-        finally { session.SettingsChanged = null; session.Gate.Release(); }
+        finally { session.PendingPermissionPreset = null; session.SettingsChanged = null; session.Gate.Release(); }
     }
 
     public async Task<JsonNode?> UnarchiveAsync(string id)
