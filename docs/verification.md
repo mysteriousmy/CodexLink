@@ -378,3 +378,9 @@ Linux x64 的实际 UPX 归档解包后通过完整 **77 项**网关契约测试
 `auto_notice_and_manual_menu_check` 覆盖连接后通知、手机菜单手动检查与前后台六小时边界；`automatic_checks_throttle_and_manual_checks_bypass` 覆盖限频、手动刷新与保存关闭开关；`update_checks_compare_app_and_server_independently` 覆盖两端独立版本和鉴权边界；`update_dialog_shows_versions_and_opens_platform_downloads` 验证点击的实际目标 URL。GitHub 公共发布样本回归 `published_github_assets_match_real_release_package_names` 固定了 Windows 使用 windows-* 的真实命名。失败、超时、缺包、不支持平台、旧服务端回退和切换主机的晚响应均有独立断言。
 
 托管服务端构建 0 警告，网关 85 项通过。`test_server_version_endpoint_is_authenticated_and_passive` 证明实际版本/平台/架构、401 和 Codex 待机保持；发布包原生烟测同样核对版本接口与内嵌网页版本。
+
+Linux x64 的最终压缩归档在本机通过 85 项完整契约（105.316 秒）以及真实 Codex 0.164.0 的速度/权限确认和两次网关生命周期检查。四个服务端包的版本、架构、二进制摘要与构建信息一致；Linux 保持完全静态链接，Linux 两架构与 Windows x64 通过 UPX 自检，Windows ARM64 保持未压缩。
+
+四种 APK 均为 0.2.0，版本码分别为 ARM64 2011、ARMv7 1011、x86_64 4011、通用 11，ABI 与包名匹配，沿用 v0.1.8/v0.1.9 签名证书。8 个分发包通过 SHA256SUMS，GitHub 的 9 个附件大小与 SHA-256 均匹配本地文件。已知私密值扫描覆盖 1,836 项源码、原生文件及归档内容，零匹配；发布前 Git 历史扫描 37 个提交，零发现。
+
+四平台 [v0.2.0 发布检查](https://github.com/mysteriousmy/CodexLink/actions/runs/40196891219) 全部通过：Linux x64/ARM64 分别通过 85 项契约（138.039 / 99.700 秒），并通过真实 Codex 0.164.0 的设置确认、冷启动、复用及退出网关后存活检查；Windows x64/ARM64 在目标系统运行最终原生包，Codex 端使用协议替身。Windows 真实 daemon 的既有宿主限制仍未解除；Android 本次没有新增实机触摸验收。
